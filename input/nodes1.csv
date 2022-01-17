@@ -1,0 +1,9 @@
+ipAddress,name,username,password,mailNotification,cpuThreshold,ramThreshold,diskThreshold,sshPort,localport
+192.168.10.11,ne1,root,ALu12#,0,1,1,1,5122,1600
+192.168.10.12,ne2,root,ALu12#,0,1,1,1,5122,1601
+192.168.10.13,ne3,root,ALu12#,0,1,1,1,5122,1602
+192.168.10.14,ne4,root,ALu12#,0,1,1,1,5122,1603
+192.168.10.15,ne5,root,ALu12#,0,1,1,1,5122,1604
+192.168.10.16,ne6,root,ALu12#,0,1,1,1,5122,1605
+192.168.10.17,ne7,root,ALu12#,0,1,1,1,5122,1606
+192.168.10.18,ne8,root,ALu12#,0,1,1,1,5122,1607

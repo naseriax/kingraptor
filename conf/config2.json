@@ -1,0 +1,13 @@
+{
+    "mailRelayIp": "172.29.4.39",
+    "mailInterval" : 300,
+    "logSize": 10,
+    "queryInterval": 30,
+    "inputFileName": "nodes2.csv",
+    "workerQuantity": 2,
+    "sshTunnel" : false,
+	"sshGwIp":"172.29.4.76",
+	"sshGwUser":"root",
+	"sshGwPass" :"modmy1.(0V",
+	"sshGwPort":"22"
+}
