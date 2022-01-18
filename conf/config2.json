@@ -1,8 +1,11 @@
 {
-    "mailRelayIp": "172.29.4.39",
+    "mailRelayIp": "172.29.4.39:25",
+    "ramCpuTimePeriod" : 100,
     "mailInterval" : 300,
+    "mailFrom": "send@nfmt.com",
+    "mailTo": "rev@nfmt.com",
     "logSize": 10,
-    "queryInterval": 30,
+    "queryInterval": 20,
     "inputFileName": "nodes2.csv",
     "workerQuantity": 2,
     "sshTunnel" : false,

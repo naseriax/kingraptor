@@ -10,17 +10,20 @@ import (
 )
 
 type Config struct {
-	MailRelayIp    string `json:"mailRelayIp"`
-	MailInterval   int    `json:"mailInterval"`
-	LogfileSize    int    `json:"logSize"`
-	QueryInterval  int    `json:"queryInterval"`
-	WorkerQuantity int    `json:"workerQuantity"`
-	InputFileName  string `json:"InputFileName"`
-	SshTunnel      bool   `json:"sshTunnel"`
-	SshGwIp        string `json:"sshGwIp"`
-	SshGwUser      string `json:"sshGwUser"`
-	SshGwPass      string `json:"sshGwPass"`
-	SshGwPort      string `json:"sshGwPort"`
+	MailRelayIp      string `json:"mailRelayIp"`
+	RamCpuTimePeriod int    `json:"ramCpuTimePeriod"`
+	MailFrom         string `json:"mailFrom"`
+	MailTo           string `json:"mailTo"`
+	MailInterval     int    `json:"mailInterval"`
+	LogfileSize      int    `json:"logSize"`
+	QueryInterval    int    `json:"queryInterval"`
+	WorkerQuantity   int    `json:"workerQuantity"`
+	InputFileName    string `json:"InputFileName"`
+	SshTunnel        bool   `json:"sshTunnel"`
+	SshGwIp          string `json:"sshGwIp"`
+	SshGwUser        string `json:"sshGwUser"`
+	SshGwPass        string `json:"sshGwPass"`
+	SshGwPort        string `json:"sshGwPort"`
 }
 
 type Node struct {

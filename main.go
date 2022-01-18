@@ -5,6 +5,7 @@ import (
 	"kingraptor/pkgs/retriever"
 	"log"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -28,13 +29,20 @@ func AssignJobs(jobs chan ioreader.Node, Nodes *map[string]ioreader.Node) {
 	close(jobs)
 }
 
-func ProcessResults(Nodes *map[string]ioreader.Node, results chan retriever.ResourceUtil) {
-	for range *Nodes {
+func ProcessResults(config ioreader.Config, NodeResourceDb *map[string][]*retriever.CriticalNeCounter, Nodes *map[string]ioreader.Node, results chan retriever.ResourceUtil) map[string][]*retriever.CriticalResource {
+	CR_Resources := map[string][]*retriever.CriticalResource{}
+	for _, ne := range *Nodes {
 		res := <-results
 		if res.IsCollected {
-			retriever.AssesResult(*Nodes, res)
+			c_metrics := retriever.AssesResult(config, NodeResourceDb, ne, res)
+			if c_metrics == nil {
+				return nil
+			} else {
+				CR_Resources[ne.Name] = c_metrics
+			}
 		}
 	}
+	return CR_Resources
 }
 
 func Wait(interval int) {
@@ -51,16 +59,30 @@ func FixWorkerQuantity(totalWorkers int, totalNodes int) int {
 	return totalWorkers
 }
 
-func DoCollect(workerQuantity int, jobs chan ioreader.Node, results chan retriever.ResourceUtil, Nodes *map[string]ioreader.Node) {
-	PrepareWorkers(workerQuantity, jobs, results)
+func DoCollect(NodeResourceDb *map[string][]*retriever.CriticalNeCounter, config ioreader.Config, jobs chan ioreader.Node, results chan retriever.ResourceUtil, Nodes *map[string]ioreader.Node) {
+	PrepareWorkers(config.WorkerQuantity, jobs, results)
 	AssignJobs(jobs, Nodes)
-	ProcessResults(Nodes, results)
+	res := ProcessResults(config, NodeResourceDb, Nodes, results)
+	if res == nil {
+		return
+	}
+
+	// mailBuffer :=
+	for name, resource := range res {
+		for _, disk := range resource {
+			if strings.Contains(disk.Resource, "Disk") {
+				retriever.InitMail(config, name, disk.Resource, "bulk", disk.Value)
+			}
+		}
+	}
 }
 
 func main() {
-	configFileName := "config.json"
+	configFileName := "config2.json"
 	config := LoadConfig(configFileName)
 	Nodes := ioreader.LoadNodes(filepath.Join("input", config.InputFileName))
+
+	NodeResourceDb := map[string][]*retriever.CriticalNeCounter{}
 
 	for {
 		config := LoadConfig(configFileName)
@@ -69,7 +91,8 @@ func main() {
 		jobs := make(chan ioreader.Node, len(Nodes))
 		results := make(chan retriever.ResourceUtil, len(Nodes))
 
-		DoCollect(config.WorkerQuantity, jobs, results, &Nodes)
+		DoCollect(&NodeResourceDb, config, jobs, results, &Nodes)
+
 		Wait(config.QueryInterval)
 	}
 }
