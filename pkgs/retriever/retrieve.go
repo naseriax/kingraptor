@@ -27,6 +27,7 @@ type CriticalNeCounter struct {
 type CriticalResource struct {
 	Resource string
 	Value    float64
+	ID       int64
 }
 
 type ResourceUtil struct {
@@ -109,7 +110,7 @@ func ProcessErrors(err error, neName string) {
 	}
 }
 
-func DoQuery(jobs <-chan ioreader.Node, results chan<- ResourceUtil) {
+func DoQuery(nelogin, nelogout chan<- int, jobs <-chan ioreader.Node, results chan<- ResourceUtil) {
 
 	cmds := []string{
 		`sar 4 1 | grep Average | awk '{print ($3 + $5)}'`, //-- CPU Query
@@ -117,128 +118,120 @@ func DoQuery(jobs <-chan ioreader.Node, results chan<- ResourceUtil) {
 		`free -m`, //------------------------------------------- RAM Query
 	}
 
-	var err error
-
 	for ne := range jobs {
-		log.Printf("collecting info from ne %v", ne.Name)
-		sshc := sshagent.SshAgent{}
 		result := ResourceUtil{
 			Name:        ne.Name,
 			IsCollected: false,
 		}
-		sshc, err = sshagent.Init(ne)
+		sshc, err := sshagent.Init(&ne)
 		if err != nil {
 			ProcessErrors(err, ne.Name)
+			nelogout <- 1
 			results <- result
 			return
 		}
-
-		cmdRes := make(chan []string)
-		errs := make(chan error)
+		nelogin <- 1
 
 		for _, c := range cmds {
-			go sshc.Exec(c, cmdRes, errs)
-		}
-
-		for range cmds {
-			select {
-			case err := <-errs:
+			res, err := sshc.Exec(c)
+			if err != nil {
 				ProcessErrors(err, ne.Name)
-				results <- result
-				return
-			case res := <-cmdRes:
-				result.ParseResult(res[0], res[1])
-			case <-time.After(20 * time.Second):
-				log.Printf("collection timeout for %v", ne.Name)
+				sshc.Disconnect()
+				nelogout <- 1
 				results <- result
 				return
 			}
+			result.ParseResult(c, &res)
 		}
-		result.ID = GetUnixTime()
-
 		result.IsCollected = true
-		sshc.Disconnect()
+		result.ID = GetUnixTime()
 		results <- result
+
+		sshc.Disconnect()
+		nelogout <- 1
 	}
 }
 
-func (result *ResourceUtil) ParseResult(c, res string) {
+func (result *ResourceUtil) ParseResult(c string, res *string) {
 	if strings.Contains(c, "awk") {
-		result.Cpu = ParseCPU(res)
+		result.Cpu = ParseCPU(*res)
 	} else if strings.Contains(c, "free -m") {
-		result.Ram = ParseRAM(res)
+		result.Ram = ParseRAM(*res)
 	} else if strings.Contains(c, "df -hP") {
-		result.Disk = ParseDisk(res)
+		result.Disk = ParseDisk(*res)
 	} else {
 		log.Println(res)
 	}
 }
 
 func (m *CriticalNeCounter) Wait30Min() {
+	fmt.Printf("%+v\n", m)
 	for m.RemainingTime > 0 {
-		fmt.Println(m.RemainingTime, "-", m.Resource, "-", m.Name)
-		time.Sleep(time.Second)
+		fmt.Printf("%v - %v - %v - %v\n", m.RemainingTime, m.Name, m.Resource, m.Value)
 		m.Key.Lock()
 		m.RemainingTime -= 1
 		m.Key.Unlock()
+		time.Sleep(time.Second)
 	}
 }
 
-func ResetTimer(NodeResourceDb *map[string][]*CriticalNeCounter, ne ioreader.Node, timerType string) {
-	for _, event := range (*NodeResourceDb)[ne.Name] {
-		if event.Name == timerType {
-			if event.RemainingTime > 0 {
-				event.Key.Lock()
-				event.RemainingTime = -1
-				event.Key.Unlock()
+func ResetTimer(NodeResourceDb *map[string][]*CriticalNeCounter, ne *ioreader.Node, timerType string) {
+	log.Printf("Calling reset Timer for %v", ne.Name)
+	for ind := range (*NodeResourceDb)[ne.Name] {
+		fmt.Printf("%+v\n", (*NodeResourceDb)[ne.Name][ind])
+		if (*NodeResourceDb)[ne.Name][ind].Resource == timerType {
+			if (*NodeResourceDb)[ne.Name][ind].RemainingTime > 0 {
+				log.Printf("Before: %v", (*NodeResourceDb)[ne.Name][ind].RemainingTime)
+				(*NodeResourceDb)[ne.Name][ind].Key.Lock()
+				(*NodeResourceDb)[ne.Name][ind].RemainingTime = -1
+				(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
+				log.Printf("After: %v", (*NodeResourceDb)[ne.Name][ind].RemainingTime)
 			}
+		} else {
+			log.Printf("Event not found %v %v", (*NodeResourceDb)[ne.Name][ind].Name, timerType)
 		}
 	}
 }
 
-func InitMail(config ioreader.Config, name, resource, method string, value float64) {
+func InitMail(config ioreader.Config, mailBodies []mail.MailBody) {
 	mailSubject := ""
 	mailBody := ""
-	if method == "single" {
-		mailSubject = mail.CreateSubject(name, resource, value, method)
-		mailBody = mail.CreateBody(name, resource, value, method)
-	} else {
-		mailSubject = mail.CreateSubject(name, resource, value, method)
-
-		mailBody = mail.CreateBody(name, resource, value, method)
-	}
-
+	mailSubject = mail.CreateSubject()
+	mailBody = mail.CreateBody(mailBodies)
 	err := mail.MailConstructor(config.MailRelayIp, config.MailFrom, mailSubject, mailBody, config.MailTo)
 	if err != nil {
 		log.Printf("mail error %v ", err)
 	} else {
 		log.Println("mail notification dispatched!")
 	}
-
 }
 
-func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalNeCounter, ne ioreader.Node, result ResourceUtil) []*CriticalResource { //Per NE
+func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalNeCounter, ne *ioreader.Node, result ResourceUtil) []CriticalResource { //Per NE
 	AnyCriticalFound := false
 
-	critical := []*CriticalResource{}
+	critical := []CriticalResource{}
 	_, NeAlreadyInDB := (*NodeResourceDb)[ne.Name]
 
 	if result.Cpu >= ne.CpuThreshold {
+		log.Printf("High cpu utilization for %v value %v", ne.Name, result.Cpu)
 		AnyCriticalFound = true
-		critical = append(critical, &CriticalResource{
+		critical = append(critical, CriticalResource{
 			Resource: "CPU",
 			Value:    result.Cpu,
+			ID:       result.ID,
 		})
 	} else {
 		if NeAlreadyInDB {
+			log.Println("Reseting for CPU")
 			ResetTimer(NodeResourceDb, ne, "CPU")
 		}
 	}
 	if result.Ram >= ne.RamThreshold {
 		AnyCriticalFound = true
-		critical = append(critical, &CriticalResource{
+		critical = append(critical, CriticalResource{
 			Resource: "RAM",
 			Value:    result.Ram,
+			ID:       result.ID,
 		})
 
 	} else {
@@ -250,61 +243,66 @@ func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalN
 	for mp, val := range result.Disk {
 		if val >= ne.DiskThreshold {
 			AnyCriticalFound = true
-			critical = append(critical, &CriticalResource{
+			critical = append(critical, CriticalResource{
 				Resource: fmt.Sprintf("Disk: %v", mp),
 				Value:    val,
+				ID:       result.ID,
 			})
 		}
 	}
 
 	if AnyCriticalFound {
-
 		if !NeAlreadyInDB {
 			(*NodeResourceDb)[ne.Name] = []*CriticalNeCounter{}
 		}
 
-		for _, criticalresource := range critical {
-			if strings.Contains(criticalresource.Resource, "Disk") {
+		for ind := range critical {
+			if strings.Contains(critical[ind].Resource, "Disk") {
 				continue
 			}
-			eventExists := false
-			for _, j := range (*NodeResourceDb)[ne.Name] {
-				if j.Resource == criticalresource.Resource {
-					eventExists = true
-					if j.RemainingTime == -1 {
-						log.Println("New High util. setting time to 200")
-						j.Key.Lock()
-						j.RemainingTime = config.RamCpuTimePeriod
-						j.Key.Unlock()
-						go j.Wait30Min()
-						break
-					} else if j.RemainingTime > 0 {
-						break
-					} else if j.RemainingTime == 0 {
-						InitMail(config, j.Name, j.Resource, "single", j.Value)
-						j.Key.Lock()
-						j.RemainingTime = config.RamCpuTimePeriod
-						j.Key.Unlock()
-						go j.Wait30Min()
+			if len((*NodeResourceDb)[ne.Name]) == 0 {
+				newNodeinDb := CriticalNeCounter{
+					Name:          ne.Name,
+					RemainingTime: config.RamCpuTimePeriod,
+					Resource:      critical[ind].Resource,
+					Value:         critical[ind].Value,
+					Key:           &sync.Mutex{},
+				}
+				go newNodeinDb.Wait30Min()
+				(*NodeResourceDb)[ne.Name] = append((*NodeResourceDb)[ne.Name], &newNodeinDb)
+			} else {
+				for ind := range (*NodeResourceDb)[ne.Name] {
+					if (*NodeResourceDb)[ne.Name][ind].Resource == critical[ind].Resource { //if the criticalrrsource in ne query c.Resource , already has a wait30min object (j.Resource).
+						fmt.Println("FOUND EVENT!")
+						log.Println((*NodeResourceDb)[ne.Name][ind].RemainingTime)
+						if (*NodeResourceDb)[ne.Name][ind].RemainingTime < 0 {
+							log.Printf("Starting timer = High value for %v - %v - %v", (*NodeResourceDb)[ne.Name][ind].Name, (*NodeResourceDb)[ne.Name][ind].Resource, (*NodeResourceDb)[ne.Name][ind].Value)
+							(*NodeResourceDb)[ne.Name][ind].Key.Lock()
+							(*NodeResourceDb)[ne.Name][ind].RemainingTime = config.RamCpuTimePeriod
+							(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
+							log.Printf("%v was -1, raising it!-Value: %v - Resource: %v, Time: %v", (*NodeResourceDb)[ne.Name][ind].Name, (*NodeResourceDb)[ne.Name][ind].Value, (*NodeResourceDb)[ne.Name][ind].Resource, (*NodeResourceDb)[ne.Name][ind].RemainingTime)
+							go (*NodeResourceDb)[ne.Name][ind].Wait30Min()
+						} else if (*NodeResourceDb)[ne.Name][ind].RemainingTime == 0 {
+							log.Printf("Sending MAIL for %v", (*NodeResourceDb)[ne.Name][ind].Name)
+							mailBody := []mail.MailBody{
+								{
+									Name:     (*NodeResourceDb)[ne.Name][ind].Name,
+									Resource: (*NodeResourceDb)[ne.Name][ind].Resource,
+									Value:    (*NodeResourceDb)[ne.Name][ind].Value,
+								},
+							}
+							InitMail(config, mailBody)
+							(*NodeResourceDb)[ne.Name][ind].Key.Lock()
+							(*NodeResourceDb)[ne.Name][ind].RemainingTime = config.RamCpuTimePeriod
+							(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
+							log.Printf("%v is 0,resetting timer after mail is sent! ---- Value: %v - Resource: %v, Time: %v", (*NodeResourceDb)[ne.Name][ind].Name, (*NodeResourceDb)[ne.Name][ind].Value, (*NodeResourceDb)[ne.Name][ind].Resource, (*NodeResourceDb)[ne.Name][ind].RemainingTime)
+							go (*NodeResourceDb)[ne.Name][ind].Wait30Min()
+						}
 						break
 					}
 				}
 			}
-			if !eventExists {
-				log.Println("New issue added to db")
-				tmp := CriticalNeCounter{
-					Name:          ne.Name,
-					RemainingTime: config.RamCpuTimePeriod,
-					Resource:      criticalresource.Resource,
-					Value:         criticalresource.Value,
-					Key:           &sync.Mutex{},
-				}
-				go tmp.Wait30Min()
-				(*NodeResourceDb)[ne.Name] = append((*NodeResourceDb)[ne.Name], &tmp)
-			}
-
 		}
-
 		return critical
 	} else {
 		return nil
