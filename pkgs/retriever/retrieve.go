@@ -12,8 +12,12 @@ import (
 	"time"
 )
 
-func GetUnixTime() int64 {
-	return time.Now().Unix()
+type DiskMailedObjects struct {
+	Name     string
+	Resource string
+	Value    float64
+	ID       int64
+	Mailed   bool
 }
 
 type CriticalNeCounter struct {
@@ -28,6 +32,7 @@ type CriticalResource struct {
 	Resource string
 	Value    float64
 	ID       int64
+	Mailed   bool
 }
 
 type ResourceUtil struct {
@@ -37,6 +42,10 @@ type ResourceUtil struct {
 	Name        string
 	ID          int64
 	IsCollected bool
+}
+
+func GetUnixTime() int64 {
+	return time.Now().Unix()
 }
 
 func ParseRAM(res string) float64 {
@@ -164,8 +173,7 @@ func (result *ResourceUtil) ParseResult(c string, res *string) {
 	}
 }
 
-func (m *CriticalNeCounter) Wait30Min() {
-	fmt.Printf("%+v\n", m)
+func (m *CriticalNeCounter) StartCriticalTimer() {
 	for m.RemainingTime > 0 {
 		fmt.Printf("%v - %v - %v - %v\n", m.RemainingTime, m.Name, m.Resource, m.Value)
 		m.Key.Lock()
@@ -175,20 +183,23 @@ func (m *CriticalNeCounter) Wait30Min() {
 	}
 }
 
+func (m *DiskMailedObjects) StartMailTimer(mailInterval int) {
+	fmt.Println("Mail wait SStarted")
+	m.Mailed = true
+	<-time.After(time.Duration(mailInterval) * time.Second)
+	fmt.Println("Mail wait finished!")
+	m.Mailed = false
+}
+
 func ResetTimer(NodeResourceDb *map[string][]*CriticalNeCounter, ne *ioreader.Node, timerType string) {
-	log.Printf("Calling reset Timer for %v", ne.Name)
 	for ind := range (*NodeResourceDb)[ne.Name] {
-		fmt.Printf("%+v\n", (*NodeResourceDb)[ne.Name][ind])
 		if (*NodeResourceDb)[ne.Name][ind].Resource == timerType {
 			if (*NodeResourceDb)[ne.Name][ind].RemainingTime > 0 {
-				log.Printf("Before: %v", (*NodeResourceDb)[ne.Name][ind].RemainingTime)
 				(*NodeResourceDb)[ne.Name][ind].Key.Lock()
 				(*NodeResourceDb)[ne.Name][ind].RemainingTime = -1
 				(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
-				log.Printf("After: %v", (*NodeResourceDb)[ne.Name][ind].RemainingTime)
 			}
-		} else {
-			log.Printf("Event not found %v %v", (*NodeResourceDb)[ne.Name][ind].Name, timerType)
+			break
 		}
 	}
 }
@@ -206,32 +217,32 @@ func InitMail(config ioreader.Config, mailBodies []mail.MailBody) {
 	}
 }
 
-func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalNeCounter, ne *ioreader.Node, result ResourceUtil) []CriticalResource { //Per NE
+func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalNeCounter, ne *ioreader.Node, result ResourceUtil) []*CriticalResource { //Per NE
 	AnyCriticalFound := false
 
-	critical := []CriticalResource{}
+	critical := []*CriticalResource{}
 	_, NeAlreadyInDB := (*NodeResourceDb)[ne.Name]
 
 	if result.Cpu >= ne.CpuThreshold {
-		log.Printf("High cpu utilization for %v value %v", ne.Name, result.Cpu)
 		AnyCriticalFound = true
-		critical = append(critical, CriticalResource{
+		critical = append(critical, &CriticalResource{
 			Resource: "CPU",
 			Value:    result.Cpu,
 			ID:       result.ID,
+			Mailed:   false,
 		})
 	} else {
 		if NeAlreadyInDB {
-			log.Println("Reseting for CPU")
 			ResetTimer(NodeResourceDb, ne, "CPU")
 		}
 	}
 	if result.Ram >= ne.RamThreshold {
 		AnyCriticalFound = true
-		critical = append(critical, CriticalResource{
+		critical = append(critical, &CriticalResource{
 			Resource: "RAM",
 			Value:    result.Ram,
 			ID:       result.ID,
+			Mailed:   false,
 		})
 
 	} else {
@@ -243,10 +254,11 @@ func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalN
 	for mp, val := range result.Disk {
 		if val >= ne.DiskThreshold {
 			AnyCriticalFound = true
-			critical = append(critical, CriticalResource{
+			critical = append(critical, &CriticalResource{
 				Resource: fmt.Sprintf("Disk: %v", mp),
 				Value:    val,
 				ID:       result.ID,
+				Mailed:   false,
 			})
 		}
 	}
@@ -256,55 +268,55 @@ func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalN
 			(*NodeResourceDb)[ne.Name] = []*CriticalNeCounter{}
 		}
 
-		for ind := range critical {
-			if strings.Contains(critical[ind].Resource, "Disk") {
-				continue
-			}
-			if len((*NodeResourceDb)[ne.Name]) == 0 {
-				newNodeinDb := CriticalNeCounter{
-					Name:          ne.Name,
-					RemainingTime: config.RamCpuTimePeriod,
-					Resource:      critical[ind].Resource,
-					Value:         critical[ind].Value,
-					Key:           &sync.Mutex{},
-				}
-				go newNodeinDb.Wait30Min()
-				(*NodeResourceDb)[ne.Name] = append((*NodeResourceDb)[ne.Name], &newNodeinDb)
-			} else {
-				for ind := range (*NodeResourceDb)[ne.Name] {
-					if (*NodeResourceDb)[ne.Name][ind].Resource == critical[ind].Resource { //if the criticalrrsource in ne query c.Resource , already has a wait30min object (j.Resource).
-						fmt.Println("FOUND EVENT!")
-						log.Println((*NodeResourceDb)[ne.Name][ind].RemainingTime)
-						if (*NodeResourceDb)[ne.Name][ind].RemainingTime < 0 {
-							log.Printf("Starting timer = High value for %v - %v - %v", (*NodeResourceDb)[ne.Name][ind].Name, (*NodeResourceDb)[ne.Name][ind].Resource, (*NodeResourceDb)[ne.Name][ind].Value)
-							(*NodeResourceDb)[ne.Name][ind].Key.Lock()
-							(*NodeResourceDb)[ne.Name][ind].RemainingTime = config.RamCpuTimePeriod
-							(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
-							log.Printf("%v was -1, raising it!-Value: %v - Resource: %v, Time: %v", (*NodeResourceDb)[ne.Name][ind].Name, (*NodeResourceDb)[ne.Name][ind].Value, (*NodeResourceDb)[ne.Name][ind].Resource, (*NodeResourceDb)[ne.Name][ind].RemainingTime)
-							go (*NodeResourceDb)[ne.Name][ind].Wait30Min()
-						} else if (*NodeResourceDb)[ne.Name][ind].RemainingTime == 0 {
-							log.Printf("Sending MAIL for %v", (*NodeResourceDb)[ne.Name][ind].Name)
-							mailBody := []mail.MailBody{
-								{
-									Name:     (*NodeResourceDb)[ne.Name][ind].Name,
-									Resource: (*NodeResourceDb)[ne.Name][ind].Resource,
-									Value:    (*NodeResourceDb)[ne.Name][ind].Value,
-								},
-							}
-							InitMail(config, mailBody)
-							(*NodeResourceDb)[ne.Name][ind].Key.Lock()
-							(*NodeResourceDb)[ne.Name][ind].RemainingTime = config.RamCpuTimePeriod
-							(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
-							log.Printf("%v is 0,resetting timer after mail is sent! ---- Value: %v - Resource: %v, Time: %v", (*NodeResourceDb)[ne.Name][ind].Name, (*NodeResourceDb)[ne.Name][ind].Value, (*NodeResourceDb)[ne.Name][ind].Resource, (*NodeResourceDb)[ne.Name][ind].RemainingTime)
-							go (*NodeResourceDb)[ne.Name][ind].Wait30Min()
-						}
-						break
-					}
-				}
-			}
-		}
+		VerifyTimer(critical, NodeResourceDb, ne, config)
 		return critical
 	} else {
 		return nil
+	}
+}
+
+func VerifyTimer(critical []*CriticalResource, NodeResourceDb *map[string][]*CriticalNeCounter, ne *ioreader.Node, config ioreader.Config) {
+	for ind := range critical {
+		if strings.Contains(critical[ind].Resource, "Disk") {
+			continue
+		}
+		if len((*NodeResourceDb)[ne.Name]) == 0 {
+			newNodeinDb := CriticalNeCounter{
+				Name:          ne.Name,
+				RemainingTime: config.RamCpuTimePeriod,
+				Resource:      critical[ind].Resource,
+				Value:         critical[ind].Value,
+				Key:           &sync.Mutex{},
+			}
+			go newNodeinDb.StartCriticalTimer()
+			(*NodeResourceDb)[ne.Name] = append((*NodeResourceDb)[ne.Name], &newNodeinDb)
+		} else {
+			for ind := range (*NodeResourceDb)[ne.Name] {
+				if (*NodeResourceDb)[ne.Name][ind].Resource == critical[ind].Resource {
+					if (*NodeResourceDb)[ne.Name][ind].RemainingTime < 0 {
+						(*NodeResourceDb)[ne.Name][ind].Key.Lock()
+						(*NodeResourceDb)[ne.Name][ind].RemainingTime = config.RamCpuTimePeriod
+						(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
+						go (*NodeResourceDb)[ne.Name][ind].StartCriticalTimer()
+					} else if (*NodeResourceDb)[ne.Name][ind].RemainingTime == 0 {
+						mailBody := []mail.MailBody{
+							{
+								Name:     (*NodeResourceDb)[ne.Name][ind].Name,
+								Resource: (*NodeResourceDb)[ne.Name][ind].Resource,
+								Value:    (*NodeResourceDb)[ne.Name][ind].Value,
+							},
+						}
+						if config.EnableMail {
+							InitMail(config, mailBody)
+						}
+						(*NodeResourceDb)[ne.Name][ind].Key.Lock()
+						(*NodeResourceDb)[ne.Name][ind].RemainingTime = config.RamCpuTimePeriod
+						(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
+						go (*NodeResourceDb)[ne.Name][ind].StartCriticalTimer()
+					}
+					break
+				}
+			}
+		}
 	}
 }

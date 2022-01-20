@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"kingraptor/pkgs/ioreader"
-	"log"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -42,45 +41,43 @@ func (s *SshAgent) Connect() error {
 	return nil
 }
 
-//Exec executed a single command on the ssh session.
-func (s *SshAgent) Exec(cmd string, cmdRes chan []string, errs chan error) {
+func (s *SshAgent) Exec(cmd string) (string, error) {
 	var err error
 	s.Session, err = s.Client.NewSession()
 	if err != nil {
-		errs <- fmt.Errorf("failed to create session: %v >> %v", cmd, err.Error())
+		return "", fmt.Errorf("failed to create session: %v >> %v", cmd, err.Error())
 	}
 	defer s.Session.Close()
 	var b bytes.Buffer
 	s.Session.Stdout = &b
 	if err := s.Session.Run(cmd); err != nil {
-		errs <- fmt.Errorf("failed to run: %v >> %v", cmd, err.Error())
+		return "", fmt.Errorf("failed to run: %v >> %v", cmd, err.Error())
 	} else {
-		cmdRes <- []string{cmd, b.String()}
+		return b.String(), nil
 	}
 }
 
 //Disconnect closes the ssh sessoin and connection.
 func (s *SshAgent) Disconnect() {
 	s.Client.Close()
-	log.Printf("Closed the ssh session for ne %v.", s.Name)
 }
 
 //Init initialises the ssh connection and returns the usable ssh agent.
-func Init(ne ioreader.Node) (SshAgent, error) {
+func Init(ne *ioreader.Node) (*SshAgent, error) {
 	sshagent := SshAgent{
-		Host:     ne.IpAddress,
-		Port:     ne.SshPort,
-		Name:     ne.Name,
-		UserName: ne.Username,
-		Password: ne.Password,
+		Host:     (*ne).IpAddress,
+		Port:     (*ne).SshPort,
+		Name:     (*ne).Name,
+		UserName: (*ne).Username,
+		Password: (*ne).Password,
 		Timeout:  20,
 	}
 
 	err := sshagent.Connect()
 
 	if err != nil {
-		return sshagent, err
+		return &sshagent, err
 	} else {
-		return sshagent, nil
+		return &sshagent, nil
 	}
 }

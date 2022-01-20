@@ -11,6 +11,7 @@ import (
 
 type Config struct {
 	MailRelayIp      string `json:"mailRelayIp"`
+	EnableMail       bool   `json:"enableMail"`
 	RamCpuTimePeriod int    `json:"ramCpuTimePeriod"`
 	MailFrom         string `json:"mailFrom"`
 	MailTo           string `json:"mailTo"`
@@ -27,16 +28,15 @@ type Config struct {
 }
 
 type Node struct {
-	IpAddress        string
-	Name             string
-	Username         string
-	Password         string
-	MailNotification string
-	CpuThreshold     float64
-	RamThreshold     float64
-	DiskThreshold    float64
-	SshPort          string
-	Localport        string
+	IpAddress     string
+	Name          string
+	Username      string
+	Password      string
+	CpuThreshold  float64
+	RamThreshold  float64
+	DiskThreshold float64
+	SshPort       string
+	Localport     string
 }
 
 func ParseCSV(csvdata [][]string) map[string]Node {
@@ -46,23 +46,22 @@ func ParseCSV(csvdata [][]string) map[string]Node {
 	for _, row := range csvdata[1:] {
 		var err error
 		for i := range floatVals {
-			floatVals[i], err = strconv.ParseFloat(row[i+5], 64)
+			floatVals[i], err = strconv.ParseFloat(row[i+4], 64)
 			if err != nil {
-				log.Printf("%v", err.Error())
+				log.Printf("Parse Error !%v", err.Error())
 				floatVals[i] = 99
 			}
 		}
 		tmp := Node{
-			IpAddress:        row[0],
-			Name:             row[1],
-			Username:         row[2],
-			Password:         row[3],
-			MailNotification: row[4],
-			CpuThreshold:     floatVals[0],
-			RamThreshold:     floatVals[1],
-			DiskThreshold:    floatVals[2],
-			SshPort:          row[8],
-			Localport:        row[9],
+			IpAddress:     row[0],
+			Name:          row[1],
+			Username:      row[2],
+			Password:      row[3],
+			CpuThreshold:  floatVals[0],
+			RamThreshold:  floatVals[1],
+			DiskThreshold: floatVals[2],
+			SshPort:       row[7],
+			Localport:     row[8],
 		}
 		nodes[tmp.Name] = tmp
 	}

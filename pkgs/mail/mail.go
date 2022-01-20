@@ -4,7 +4,23 @@ import (
 	"fmt"
 	"net/smtp"
 	"strings"
+	"time"
 )
+
+type MailBody struct {
+	Name     string
+	Resource string
+	Value    float64
+	ID       int64
+}
+
+type DiskMailedObjects struct {
+	Name     string
+	Resource string
+	Value    float64
+	ID       int64
+	Mailed   bool
+}
 
 type MailObject struct {
 	ServerAddress string
@@ -12,6 +28,13 @@ type MailObject struct {
 	Subject       string
 	Body          string
 	To            string
+}
+
+func FormatEpoch(epoch int64) string {
+	if epoch == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%v", time.Unix(epoch, 0))
 }
 
 func MailConstructor(addr, from, subject, body, to string) error {
@@ -85,20 +108,17 @@ func (m *MailObject) SendMail() error {
 	return c.Quit()
 }
 
-func CreateSubject(name, resource string, value float64, method string) string {
-	if method == "single" {
-		return fmt.Sprintf("Kingraptor - High %v Utilization (%v) (30 Minutes period): %v", resource, value, name)
-	} else {
-		return "Kingraptor - High disk Utilization"
-	}
+func CreateSubject() string {
+	return "Kingraptor - High disk Utilization"
 }
 
-func CreateBody(name, resource string, value float64, method string) string {
+func CreateBody(mailBodies []MailBody) string {
 	body := ""
-	if method == "single" {
-		body += "     NE Name: " + name + "\n" +
-			"     Resource: " + resource + "\n" +
-			"     Value: " + fmt.Sprintf("%v", value) + "\n" +
+	for _, mailItem := range mailBodies {
+		body += "     NE Name: " + mailItem.Name + "\n" +
+			"     Resource: " + mailItem.Resource + "\n" +
+			"     Value: " + fmt.Sprintf("%v", mailItem.Value) + "\n" +
+			"     Date & time: " + fmt.Sprintf("%v", FormatEpoch(mailItem.ID)) + "\n" +
 			"     =========================================================================\n"
 	}
 	return body

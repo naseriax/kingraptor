@@ -1,16 +1,18 @@
 {
+    "enableMail": true,
     "mailRelayIp": "172.29.4.39:25",
-    "ramCpuTimePeriod" : 100,
+    "ramCpuTimePeriod" : 30,
     "mailInterval" : 300,
     "mailFrom": "send@nfmt.com",
     "mailTo": "rev@nfmt.com",
     "logSize": 10,
     "queryInterval": 20,
     "inputFileName": "nodes2.csv",
-    "workerQuantity": 2,
+    "workerQuantity": 3,
     "sshTunnel" : false,
 	"sshGwIp":"172.29.4.76",
 	"sshGwUser":"root",
 	"sshGwPass" :"modmy1.(0V",
 	"sshGwPort":"22"
+
 }
