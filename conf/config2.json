@@ -8,11 +8,10 @@
     "logSize": 10,
     "queryInterval": 20,
     "inputFileName": "nodes2.csv",
-    "workerQuantity": 3,
-    "sshTunnel" : false,
-	"sshGwIp":"172.29.4.76",
+    "workerQuantity": 10,
+    "sshTunnel" : true,
+	"sshGwIp":"172.29.4.79",
 	"sshGwUser":"root",
-	"sshGwPass" :"modmy1.(0V",
+	"sshGwPass" :"275rufqwvi86duIY$",
 	"sshGwPort":"22"
-
 }

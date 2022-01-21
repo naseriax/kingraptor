@@ -14,14 +14,6 @@ type MailBody struct {
 	ID       int64
 }
 
-type DiskMailedObjects struct {
-	Name     string
-	Resource string
-	Value    float64
-	ID       int64
-	Mailed   bool
-}
-
 type MailObject struct {
 	ServerAddress string
 	From          string

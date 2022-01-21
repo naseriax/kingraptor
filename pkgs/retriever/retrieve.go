@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 type DiskMailedObjects struct {
@@ -119,7 +121,7 @@ func ProcessErrors(err error, neName string) {
 	}
 }
 
-func DoQuery(nelogin, nelogout chan<- int, jobs <-chan ioreader.Node, results chan<- ResourceUtil) {
+func DoQuery(isClosed <-chan bool, config ioreader.Config, nelogin, nelogout chan<- string, jobs <-chan ioreader.Node, results chan<- ResourceUtil) {
 
 	cmds := []string{
 		`sar 4 1 | grep Average | awk '{print ($3 + $5)}'`, //-- CPU Query
@@ -128,25 +130,74 @@ func DoQuery(nelogin, nelogout chan<- int, jobs <-chan ioreader.Node, results ch
 	}
 
 	for ne := range jobs {
+
+		TunnelDone := make(chan bool)
+		var ClientConn *ssh.Client
+		var err error
+		TunnelConnection := false
 		result := ResourceUtil{
 			Name:        ne.Name,
 			IsCollected: false,
 		}
+
+		select {
+		case <-isClosed:
+			results <- result
+			return
+		default:
+		}
+		//==================================================
+		if config.SshTunnel {
+			sshConfig := &ssh.ClientConfig{
+				User: config.SshGwUser,
+				Auth: []ssh.AuthMethod{
+					ssh.Password(config.SshGwPass),
+				},
+				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+				Timeout:         time.Duration(5) * time.Second,
+			}
+
+			ClientConn, err = ssh.Dial("tcp", fmt.Sprintf("%v:%v", config.SshGwIp, config.SshGwPort), sshConfig)
+			if err != nil {
+				ProcessErrors(err, ne.Name)
+				results <- result
+				return
+			}
+			TunnelConnection = true
+			nelogin <- ne.Name
+			go sshagent.Tunnel(TunnelDone, ClientConn, fmt.Sprintf("localhost:%v", ne.Localport), fmt.Sprintf("%v:%v", ne.IpAddress, ne.SshPort))
+			ne.IpAddress = "localhost"
+			ne.SshPort = ne.Localport
+		}
+
+		//=========================================================
+		log.Println("Conncting to ne via tunnel")
 		sshc, err := sshagent.Init(&ne)
 		if err != nil {
 			ProcessErrors(err, ne.Name)
-			nelogout <- 1
+			if config.SshTunnel && TunnelConnection {
+				select {
+				case <-TunnelDone:
+					log.Println("Tunnel can be closed!")
+					ClientConn.Close()
+				case <-time.After(15 * time.Second):
+					log.Println("Tunnel Timeout.closing")
+					ClientConn.Close()
+				}
+			}
+			nelogout <- ne.Name
 			results <- result
 			return
 		}
-		nelogin <- 1
+
+		nelogin <- ne.Name
 
 		for _, c := range cmds {
 			res, err := sshc.Exec(c)
 			if err != nil {
 				ProcessErrors(err, ne.Name)
 				sshc.Disconnect()
-				nelogout <- 1
+				nelogout <- ne.Name
 				results <- result
 				return
 			}
@@ -155,9 +206,21 @@ func DoQuery(nelogin, nelogout chan<- int, jobs <-chan ioreader.Node, results ch
 		result.IsCollected = true
 		result.ID = GetUnixTime()
 		results <- result
-
 		sshc.Disconnect()
-		nelogout <- 1
+		nelogout <- ne.Name
+
+		log.Println("Closing the tunnel")
+		if config.SshTunnel && TunnelConnection {
+			select {
+			case <-TunnelDone:
+				log.Println("Tunnel can be closed!")
+				ClientConn.Close()
+			case <-time.After(20 * time.Second):
+				log.Println("Tunnel Timeout.closing")
+				ClientConn.Close()
+			}
+			nelogout <- ne.Name
+		}
 	}
 }
 
@@ -184,10 +247,8 @@ func (m *CriticalNeCounter) StartCriticalTimer() {
 }
 
 func (m *DiskMailedObjects) StartMailTimer(mailInterval int) {
-	fmt.Println("Mail wait SStarted")
 	m.Mailed = true
 	<-time.After(time.Duration(mailInterval) * time.Second)
-	fmt.Println("Mail wait finished!")
 	m.Mailed = false
 }
 

@@ -20,9 +20,9 @@ func LoadConfig(configFileName string) ioreader.Config {
 	return config
 }
 
-func PrepareWorkers(nelogin, nelogout chan int, workers int, jobs chan ioreader.Node, results chan retriever.ResourceUtil) {
+func PrepareWorkers(isClosed chan bool, config ioreader.Config, nelogin, nelogout chan string, workers int, jobs chan ioreader.Node, results chan retriever.ResourceUtil) {
 	for i := 1; i <= workers; i++ {
-		go retriever.DoQuery(nelogin, nelogout, jobs, results)
+		go retriever.DoQuery(isClosed, config, nelogin, nelogout, jobs, results)
 	}
 }
 
@@ -49,7 +49,7 @@ func ProcessResults(config ioreader.Config, NodeResourceDb *map[string][]*retrie
 					}
 				}
 			}
-		case <-time.After(10 * time.Second):
+		case <-time.After(25 * time.Second):
 			log.Println("Timeout")
 		}
 	}
@@ -70,8 +70,8 @@ func FixWorkerQuantity(totalWorkers int, totalNodes int) int {
 	return totalWorkers
 }
 
-func DoCollect(nelogin, nelogout chan int, NodeResourceDb *map[string][]*retriever.CriticalNeCounter, DiskMaildB *map[string][]*retriever.DiskMailedObjects, config ioreader.Config, jobs chan ioreader.Node, results chan retriever.ResourceUtil, Nodes map[string]ioreader.Node) {
-	PrepareWorkers(nelogin, nelogout, config.WorkerQuantity, jobs, results)
+func DoCollect(isClosed chan bool, nelogin, nelogout chan string, NodeResourceDb *map[string][]*retriever.CriticalNeCounter, DiskMaildB *map[string][]*retriever.DiskMailedObjects, config ioreader.Config, jobs chan ioreader.Node, results chan retriever.ResourceUtil, Nodes map[string]ioreader.Node) {
+	PrepareWorkers(isClosed, config, nelogin, nelogout, config.WorkerQuantity, jobs, results)
 	AssignJobs(jobs, Nodes)
 	res := ProcessResults(config, NodeResourceDb, Nodes, results)
 	if res == nil {
@@ -80,7 +80,6 @@ func DoCollect(nelogin, nelogout chan int, NodeResourceDb *map[string][]*retriev
 	if config.EnableMail {
 		mailBuffer := MakeMailBuffer(DiskMaildB, res, config.MailInterval)
 		if len(mailBuffer) > 0 {
-			log.Println("mailBuffer is not empty - sending mail")
 			retriever.InitMail(config, mailBuffer)
 		}
 	}
@@ -105,143 +104,89 @@ func BuildMailDbEntry(name string, disk *retriever.CriticalResource) *retriever.
 	}
 }
 
-func IsDiskMailInDb(DiskDbContent []*retriever.DiskMailedObjects, disk *retriever.CriticalResource) int {
-	for ind := range DiskDbContent {
-		if DiskDbContent[ind].Resource == disk.Resource {
-			return ind
-		}
-	}
-	return -1
-}
-
-// func MakeMailBuffer(DiskMaildB *map[string][]*retriever.DiskMailedObjects, res map[string][]*retriever.CriticalResource, mailInterval int) []mail.MailBody {
-// 	mailBuffer := []mail.MailBody{}
-// 	for name, resource := range res {
-// 		for _, disk := range resource {
-// 			if strings.Contains(disk.Resource, "Disk") {
-// 				if _, IsNeExistsInMailDb := (*DiskMaildB)[name]; !IsNeExistsInMailDb {
-// 					(*DiskMaildB)[name] = []*retriever.DiskMailedObjects{}
-// 				}
-// 				isDiskMailInDb := IsDiskMailInDb((*DiskMaildB)[name], disk)
-// 				if isDiskMailInDb > 0 {
-// 					if (*DiskMaildB)[name][isDiskMailInDb].Mailed {
-// 						continue
-// 					} else {
-// 						go (*DiskMaildB)[name][isDiskMailInDb].StartMailTimer(mailInterval)
-// 						mailBuffer = append(mailBuffer, BuildMailBody(name, disk))
-// 					}
-// 				} else {
-// 					dbEntry := BuildMailDbEntry(name, disk)
-// 					go dbEntry.StartMailTimer(mailInterval)
-// 					(*DiskMaildB)[name] = append((*DiskMaildB)[name], dbEntry)
-// 					mailBuffer = append(mailBuffer, BuildMailBody(name, disk))
-// 				}
-// 			}
-// 		}
-// 	}
-// 	return mailBuffer
-// }
-
 func MakeMailBuffer(DiskMaildB *map[string][]*retriever.DiskMailedObjects, res map[string][]*retriever.CriticalResource, mailInterval int) []mail.MailBody {
 	mailBuffer := []mail.MailBody{}
 	for name, resource := range res {
 		for _, disk := range resource {
 			if strings.Contains(disk.Resource, "Disk") {
 				if _, IsNeExistsInMailDb := (*DiskMaildB)[name]; !IsNeExistsInMailDb {
-					log.Printf("IsNeExistsInMailDb is false for %v - %v", name, disk.Resource)
 					(*DiskMaildB)[name] = []*retriever.DiskMailedObjects{}
-					// mailDbEntry := &retriever.DiskMailedObjects{
-					// 	Name:     name,
-					// 	Resource: disk.Resource,
-					// 	Value:    disk.Value,
-					// 	ID:       disk.ID,
-					// 	Mailed:   false,
-					// }
-					// log.Printf("Starting mail wait for %v %v", name, disk.Resource)
-					// go mailDbEntry.StartMailTimer(mailInterval)
-					// (*DiskMaildB)[name] = append((*DiskMaildB)[name], mailDbEntry)
-					// mailBuffer = append(mailBuffer, mail.MailBody{
-					// 	Name:     name,
-					// 	Resource: disk.Resource,
-					// 	Value:    disk.Value,
-					// 	ID:       disk.ID,
-					// })
-				} //else {
-				log.Printf("Ne exists in mail dB %v", name)
+				}
 				foundRecord := false
 				for ind := range (*DiskMaildB)[name] {
 					if (*DiskMaildB)[name][ind].Resource == disk.Resource {
 						foundRecord = true
-						log.Println("Found the mail event in maildb")
 						if !(*DiskMaildB)[name][ind].Mailed {
-							log.Println("Mailed is fales!")
-							mailBuffer = append(mailBuffer, mail.MailBody{
-								Name:     name,
-								Resource: disk.Resource,
-								Value:    disk.Value,
-								ID:       disk.ID,
-							})
-
-							log.Print("Staring mail wait - 2")
+							mailBuffer = append(mailBuffer, BuildMailBody(name, disk))
 							go (*DiskMaildB)[name][ind].StartMailTimer(mailInterval)
-						} else {
-							log.Println("Already Notified")
 						}
-						continue
 					}
-
 				}
 				if !foundRecord {
-					log.Println("Ne exists but entry no. creating new entry")
-					mailDbEntry := &retriever.DiskMailedObjects{
-						Name:     name,
-						Resource: disk.Resource,
-						Value:    disk.Value,
-						ID:       disk.ID,
-						Mailed:   false,
-					}
-					log.Printf("Starting mail wait for 222 %v %v", name, disk.Resource)
+					mailDbEntry := BuildMailDbEntry(name, disk)
 					go mailDbEntry.StartMailTimer(mailInterval)
 					(*DiskMaildB)[name] = append((*DiskMaildB)[name], mailDbEntry)
-					mailBuffer = append(mailBuffer, mail.MailBody{
-						Name:     name,
-						Resource: disk.Resource,
-						Value:    disk.Value,
-						ID:       disk.ID,
-					})
+					mailBuffer = append(mailBuffer, BuildMailBody(name, disk))
 				}
-
-				// }
 			}
 		}
 	}
 	return mailBuffer
 }
 
+func findIndex(list []string, item string) int {
+	for i, val := range list {
+		if val == item {
+			return i
+		}
+	}
+	return -1
+}
+
+func RemoveIndex(s []string, item string) []string {
+	index := findIndex(s, item)
+	if index != -1 {
+		return append(s[:index], s[index+1:]...)
+	} else {
+		return s
+	}
+}
+
 //closeGracefully receives the keyboard interrupt signal from os (CTRL-C) and initiates gracefull closure by waiting for session logouts to finish.
-func closeGracefully(nelogin, nelogout <-chan int, c chan os.Signal) {
-	localSessionInfo := 0
+func closeGracefully(isClosed chan<- bool, nelogin, nelogout <-chan string, c chan os.Signal) {
+	localSessionInfo := []string{}
 	for {
 		select {
-		case <-nelogin:
-			localSessionInfo += 1
-		case <-nelogout:
-			localSessionInfo -= 1
+		case ne := <-nelogin:
+			localSessionInfo = append(localSessionInfo, ne)
+		case ne := <-nelogout:
+			localSessionInfo = RemoveIndex(localSessionInfo, ne)
 		case <-c:
 			fmt.Println("\nCTRL-C Detected!")
-			if localSessionInfo == 0 {
+			if len(localSessionInfo) == 0 {
 				log.Println("all session are terminated!")
 				os.Exit(0)
 				return
 			} else {
-				for localSessionInfo > 0 {
+				ClosureTimeout := 20
+				for len(localSessionInfo) > 0 {
+					if ClosureTimeout <= 0 {
+						log.Println("closeure timeout")
+						log.Println("below sessions are still open:")
+						for _, n := range localSessionInfo {
+							fmt.Println(n)
+						}
+						os.Exit(1)
+						return
+					}
 					select {
-					case <-nelogout:
-						localSessionInfo -= 1
-					case <-nelogin:
-						localSessionInfo += 1
+					case ne := <-nelogout:
+						localSessionInfo = RemoveIndex(localSessionInfo, ne)
+					case ne := <-nelogin:
+						localSessionInfo = append(localSessionInfo, ne)
 					case <-time.After(time.Second):
-						log.Printf("open sessions: %v", localSessionInfo)
+						ClosureTimeout -= 1
+						log.Printf("open sessions: %v", len(localSessionInfo))
 						continue
 					}
 				}
@@ -260,14 +205,16 @@ func prepareOsSig() chan os.Signal {
 }
 
 func main() {
+
 	configFileName := "config2.json"
 	config := LoadConfig(configFileName)
 	Nodes := ioreader.LoadNodes(filepath.Join("input", config.InputFileName))
 
-	nelogin := make(chan int)
-	nelogout := make(chan int)
+	nelogin := make(chan string)
+	nelogout := make(chan string)
+	isClosed := make(chan bool, 1)
 
-	go closeGracefully(nelogin, nelogout, prepareOsSig())
+	go closeGracefully(isClosed, nelogin, nelogout, prepareOsSig())
 
 	NodeResourceDb := map[string][]*retriever.CriticalNeCounter{}
 	DiskMailDb := map[string][]*retriever.DiskMailedObjects{}
@@ -279,7 +226,7 @@ func main() {
 		jobs := make(chan ioreader.Node, len(Nodes))
 		results := make(chan retriever.ResourceUtil, len(Nodes))
 
-		DoCollect(nelogin, nelogout, &NodeResourceDb, &DiskMailDb, config, jobs, results, Nodes)
+		DoCollect(isClosed, nelogin, nelogout, &NodeResourceDb, &DiskMailDb, config, jobs, results, Nodes)
 		Wait(config.QueryInterval)
 	}
 }

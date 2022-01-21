@@ -3,7 +3,11 @@ package sshagent
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"kingraptor/pkgs/ioreader"
+	"log"
+	"net"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -80,4 +84,63 @@ func Init(ne *ioreader.Node) (*SshAgent, error) {
 	} else {
 		return &sshagent, nil
 	}
+}
+
+func Pipe(copyProgress chan int, errch chan error, writer, reader net.Conn) {
+	defer writer.Close()
+	defer reader.Close()
+
+	_, err := io.Copy(writer, reader)
+	if err != nil {
+		log.Printf("failed to copy: %s", err)
+		errch <- err
+		return
+	}
+	copyProgress <- 1
+}
+
+func Tunnel(TunnelDone chan<- bool, conn *ssh.Client, local, remote string) {
+	lst, err := net.Listen("tcp", local)
+	if err != nil {
+		if strings.Contains(err.Error(), "bind: address already in use") {
+			log.Println("The tunnel is already open")
+			return
+		} else {
+			log.Println(err.Error())
+		}
+	}
+	here, err := lst.Accept()
+	if err != nil {
+		fmt.Println(err.Error())
+		log.Println("Closing here0")
+		here.Close()
+		log.Println("Closing lst0")
+		lst.Close()
+		return
+	}
+	go func(here net.Conn) {
+		copyProgress := make(chan int)
+		errch := make(chan error)
+		there, err := conn.Dial("tcp", remote)
+		if err != nil {
+			log.Printf("failed to dial to remote: %q", err)
+			here.Close()
+			lst.Close()
+			return
+		}
+		go Pipe(copyProgress, errch, there, here)
+		go Pipe(copyProgress, errch, here, there)
+		for i := 0; i < 2; i++ {
+			select {
+			case <-errch:
+				log.Println("Got error from pipe")
+			case <-copyProgress:
+				log.Println("Got Result from pipe")
+			}
+		}
+		here.Close()
+		there.Close()
+		lst.Close()
+		TunnelDone <- true
+	}(here)
 }
