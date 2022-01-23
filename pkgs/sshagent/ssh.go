@@ -7,7 +7,6 @@ import (
 	"kingraptor/pkgs/ioreader"
 	"log"
 	"net"
-	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -99,48 +98,52 @@ func Pipe(copyProgress chan int, errch chan error, writer, reader net.Conn) {
 	copyProgress <- 1
 }
 
-func Tunnel(TunnelDone chan<- bool, conn *ssh.Client, local, remote string) {
+func Tunnel(tunReady chan<- bool, TunnelDone chan<- bool, conn *ssh.Client, local, remote string) {
 	lst, err := net.Listen("tcp", local)
 	if err != nil {
-		if strings.Contains(err.Error(), "bind: address already in use") {
-			log.Println("The tunnel is already open")
-			return
-		} else {
-			log.Println(err.Error())
-		}
+		log.Println(err.Error())
+		return
 	}
+
+	tunReady <- true
 	here, err := lst.Accept()
 	if err != nil {
-		fmt.Println(err.Error())
-		log.Println("Closing here0")
-		here.Close()
-		log.Println("Closing lst0")
+		fmt.Printf("Failed to accept the ssh connection - %v", err)
 		lst.Close()
 		return
 	}
-	go func(here net.Conn) {
+	thereOk := make(chan bool)
+	thereErr := make(chan bool)
+	go func(thereOk, thereErr chan bool, here net.Conn) {
 		copyProgress := make(chan int)
 		errch := make(chan error)
 		there, err := conn.Dial("tcp", remote)
 		if err != nil {
-			log.Printf("failed to dial to remote: %q", err)
-			here.Close()
-			lst.Close()
+			fmt.Printf("Failed to open there!- %v", err)
+			thereErr <- true
 			return
 		}
+		thereOk <- true
 		go Pipe(copyProgress, errch, there, here)
 		go Pipe(copyProgress, errch, here, there)
 		for i := 0; i < 2; i++ {
 			select {
 			case <-errch:
-				log.Println("Got error from pipe")
 			case <-copyProgress:
-				log.Println("Got Result from pipe")
 			}
 		}
-		here.Close()
 		there.Close()
+		here.Close()
 		lst.Close()
 		TunnelDone <- true
-	}(here)
+	}(thereOk, thereErr, here)
+
+	select {
+	case <-thereErr:
+		here.Close()
+		lst.Close()
+		TunnelDone <- true
+		return
+	case <-thereOk:
+	}
 }

@@ -20,18 +20,7 @@ func LoadConfig(configFileName string) ioreader.Config {
 	return config
 }
 
-func PrepareWorkers(isClosed chan bool, config ioreader.Config, nelogin, nelogout chan string, workers int, jobs chan ioreader.Node, results chan retriever.ResourceUtil) {
-	for i := 1; i <= workers; i++ {
-		go retriever.DoQuery(isClosed, config, nelogin, nelogout, jobs, results)
-	}
-}
-
-func AssignJobs(jobs chan ioreader.Node, Nodes map[string]ioreader.Node) {
-	for _, ne := range Nodes {
-		jobs <- ne
-	}
-	close(jobs)
-}
+var IsEnded = false
 
 func ProcessResults(config ioreader.Config, NodeResourceDb *map[string][]*retriever.CriticalNeCounter, Nodes map[string]ioreader.Node, results <-chan retriever.ResourceUtil) map[string][]*retriever.CriticalResource {
 	CR_Resources := map[string][]*retriever.CriticalResource{}
@@ -70,19 +59,32 @@ func FixWorkerQuantity(totalWorkers int, totalNodes int) int {
 	return totalWorkers
 }
 
-func DoCollect(isClosed chan bool, nelogin, nelogout chan string, NodeResourceDb *map[string][]*retriever.CriticalNeCounter, DiskMaildB *map[string][]*retriever.DiskMailedObjects, config ioreader.Config, jobs chan ioreader.Node, results chan retriever.ResourceUtil, Nodes map[string]ioreader.Node) {
-	PrepareWorkers(isClosed, config, nelogin, nelogout, config.WorkerQuantity, jobs, results)
-	AssignJobs(jobs, Nodes)
+func DoCollect(NodeResourceDb *map[string][]*retriever.CriticalNeCounter, DiskMaildB *map[string][]*retriever.DiskMailedObjects, config ioreader.Config, results chan retriever.ResourceUtil, Nodes map[string]ioreader.Node) bool {
+	workerpool := make(chan bool, config.WorkerQuantity)
+	for _, ne := range Nodes {
+		if IsEnded {
+			return false
+		}
+
+		workerpool <- true
+		go func(ne ioreader.Node) {
+			defer func() { <-workerpool }()
+			retriever.DoQuery(config, ne, results)
+		}(ne)
+	}
+
 	res := ProcessResults(config, NodeResourceDb, Nodes, results)
 	if res == nil {
-		return
+		return true
 	}
+
 	if config.EnableMail {
 		mailBuffer := MakeMailBuffer(DiskMaildB, res, config.MailInterval)
 		if len(mailBuffer) > 0 {
 			retriever.InitMail(config, mailBuffer)
 		}
 	}
+	return true
 }
 
 func BuildMailBody(name string, disk *retriever.CriticalResource) mail.MailBody {
@@ -153,49 +155,11 @@ func RemoveIndex(s []string, item string) []string {
 }
 
 //closeGracefully receives the keyboard interrupt signal from os (CTRL-C) and initiates gracefull closure by waiting for session logouts to finish.
-func closeGracefully(isClosed chan<- bool, nelogin, nelogout <-chan string, c chan os.Signal) {
-	localSessionInfo := []string{}
-	for {
-		select {
-		case ne := <-nelogin:
-			localSessionInfo = append(localSessionInfo, ne)
-		case ne := <-nelogout:
-			localSessionInfo = RemoveIndex(localSessionInfo, ne)
-		case <-c:
-			fmt.Println("\nCTRL-C Detected!")
-			if len(localSessionInfo) == 0 {
-				log.Println("all session are terminated!")
-				os.Exit(0)
-				return
-			} else {
-				ClosureTimeout := 20
-				for len(localSessionInfo) > 0 {
-					if ClosureTimeout <= 0 {
-						log.Println("closeure timeout")
-						log.Println("below sessions are still open:")
-						for _, n := range localSessionInfo {
-							fmt.Println(n)
-						}
-						os.Exit(1)
-						return
-					}
-					select {
-					case ne := <-nelogout:
-						localSessionInfo = RemoveIndex(localSessionInfo, ne)
-					case ne := <-nelogin:
-						localSessionInfo = append(localSessionInfo, ne)
-					case <-time.After(time.Second):
-						ClosureTimeout -= 1
-						log.Printf("open sessions: %v", len(localSessionInfo))
-						continue
-					}
-				}
-				log.Println("all sessions are terminated after waiting...!")
-				os.Exit(0)
-				return
-			}
-		}
-	}
+func closeAll(c chan os.Signal) {
+	<-c
+	IsEnded = true
+	fmt.Println("\nCTRL-C Detected!")
+	os.Exit(0)
 }
 
 func prepareOsSig() chan os.Signal {
@@ -210,11 +174,7 @@ func main() {
 	config := LoadConfig(configFileName)
 	Nodes := ioreader.LoadNodes(filepath.Join("input", config.InputFileName))
 
-	nelogin := make(chan string)
-	nelogout := make(chan string)
-	isClosed := make(chan bool, 1)
-
-	go closeGracefully(isClosed, nelogin, nelogout, prepareOsSig())
+	go closeAll(prepareOsSig())
 
 	NodeResourceDb := map[string][]*retriever.CriticalNeCounter{}
 	DiskMailDb := map[string][]*retriever.DiskMailedObjects{}
@@ -223,10 +183,13 @@ func main() {
 		config := LoadConfig(configFileName)
 		config.WorkerQuantity = FixWorkerQuantity(config.WorkerQuantity, len(Nodes))
 
-		jobs := make(chan ioreader.Node, len(Nodes))
 		results := make(chan retriever.ResourceUtil, len(Nodes))
 
-		DoCollect(isClosed, nelogin, nelogout, &NodeResourceDb, &DiskMailDb, config, jobs, results, Nodes)
-		Wait(config.QueryInterval)
+		if DoCollect(&NodeResourceDb, &DiskMailDb, config, results, Nodes) {
+			Wait(config.QueryInterval)
+		} else {
+			log.Println("shutting down the engine")
+			break
+		}
 	}
 }
