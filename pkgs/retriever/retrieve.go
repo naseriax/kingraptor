@@ -2,7 +2,7 @@ package retriever
 
 import (
 	"fmt"
-	"kingraptor/pkgs/ioreader"
+	"kingraptor/pkgs/io/ioreader"
 	"kingraptor/pkgs/mail"
 	"kingraptor/pkgs/sshagent"
 	"log"
@@ -13,6 +13,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 )
+
+var IsEnded = false
 
 type DiskMailedObjects struct {
 	Name     string
@@ -220,6 +222,9 @@ func (result *ResourceUtil) ParseResult(c string, res *string) {
 
 func (m *CriticalNeCounter) StartCriticalTimer() {
 	for m.RemainingTime > 0 {
+		if IsEnded {
+			return
+		}
 		fmt.Printf("%v - %v - %v - %v\n", m.RemainingTime, m.Name, m.Resource, m.Value)
 		m.Key.Lock()
 		m.RemainingTime -= 1
@@ -230,7 +235,14 @@ func (m *CriticalNeCounter) StartCriticalTimer() {
 
 func (m *DiskMailedObjects) StartMailTimer(mailInterval int) {
 	m.Mailed = true
-	<-time.After(time.Duration(mailInterval) * time.Second)
+	for mailInterval > 0 {
+		if IsEnded {
+			return
+		}
+		time.Sleep(time.Second)
+		mailInterval -= 1
+
+	}
 	m.Mailed = false
 }
 

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"kingraptor/pkgs/ioreader"
+	"kingraptor/pkgs/io/ioreader"
 	"log"
 	"net"
 	"time"

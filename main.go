@@ -2,7 +2,8 @@ package main
 
 import (
 	"fmt"
-	"kingraptor/pkgs/ioreader"
+	"kingraptor/pkgs/io/ioreader"
+	"kingraptor/pkgs/io/iowriter"
 	"kingraptor/pkgs/mail"
 	"kingraptor/pkgs/retriever"
 	"log"
@@ -19,8 +20,6 @@ func LoadConfig(configFileName string) ioreader.Config {
 	config := ioreader.ReadConfig(configFilePath)
 	return config
 }
-
-var IsEnded = false
 
 func ProcessResults(config ioreader.Config, NodeResourceDb *map[string][]*retriever.CriticalNeCounter, Nodes map[string]ioreader.Node, results <-chan retriever.ResourceUtil) map[string][]*retriever.CriticalResource {
 	CR_Resources := map[string][]*retriever.CriticalResource{}
@@ -59,10 +58,10 @@ func FixWorkerQuantity(totalWorkers int, totalNodes int) int {
 	return totalWorkers
 }
 
-func DoCollect(NodeResourceDb *map[string][]*retriever.CriticalNeCounter, DiskMaildB *map[string][]*retriever.DiskMailedObjects, config ioreader.Config, results chan retriever.ResourceUtil, Nodes map[string]ioreader.Node) bool {
+func DoCollect(logger *iowriter.Log, NodeResourceDb *map[string][]*retriever.CriticalNeCounter, DiskMaildB *map[string][]*retriever.DiskMailedObjects, config ioreader.Config, results chan retriever.ResourceUtil, Nodes map[string]ioreader.Node) bool {
 	workerpool := make(chan bool, config.WorkerQuantity)
 	for _, ne := range Nodes {
-		if IsEnded {
+		if retriever.IsEnded {
 			return false
 		}
 
@@ -76,6 +75,11 @@ func DoCollect(NodeResourceDb *map[string][]*retriever.CriticalNeCounter, DiskMa
 	res := ProcessResults(config, NodeResourceDb, Nodes, results)
 	if res == nil {
 		return true
+	}
+
+	err := logger.WriteLog(MakeLogBuffer(res))
+	if err != nil {
+		log.Printf("failed to fill the csv - %v", err)
 	}
 
 	if config.EnableMail {
@@ -136,6 +140,16 @@ func MakeMailBuffer(DiskMaildB *map[string][]*retriever.DiskMailedObjects, res m
 	return mailBuffer
 }
 
+func MakeLogBuffer(res map[string][]*retriever.CriticalResource) string {
+	logBuff := ""
+	for name, resource := range res {
+		for _, s := range resource {
+			logBuff += fmt.Sprintf("%v,%v,%v,%v\n", s.ID, name, s.Resource, s.Value)
+		}
+	}
+	return logBuff[:len(logBuff)-2]
+}
+
 func findIndex(list []string, item string) int {
 	for i, val := range list {
 		if val == item {
@@ -157,8 +171,10 @@ func RemoveIndex(s []string, item string) []string {
 //closeGracefully receives the keyboard interrupt signal from os (CTRL-C) and initiates gracefull closure by waiting for session logouts to finish.
 func closeAll(c chan os.Signal) {
 	<-c
-	IsEnded = true
+	retriever.IsEnded = true
 	fmt.Println("\nCTRL-C Detected!")
+	fmt.Println("Shutting down the background timers")
+	time.Sleep(5 * time.Second)
 	os.Exit(0)
 }
 
@@ -168,10 +184,19 @@ func prepareOsSig() chan os.Signal {
 	return c
 }
 
+func makeLogger(fileSize float64) iowriter.Log {
+	return iowriter.Log{
+		FilePath:  "logs",
+		SizeLimit: fileSize,
+	}
+}
+
 func main() {
 
 	configFileName := "config2.json"
 	config := LoadConfig(configFileName)
+	logger := makeLogger(config.LogfileSize)
+
 	Nodes := ioreader.LoadNodes(filepath.Join("input", config.InputFileName))
 
 	go closeAll(prepareOsSig())
@@ -185,7 +210,7 @@ func main() {
 
 		results := make(chan retriever.ResourceUtil, len(Nodes))
 
-		if DoCollect(&NodeResourceDb, &DiskMailDb, config, results, Nodes) {
+		if DoCollect(&logger, &NodeResourceDb, &DiskMailDb, config, results, Nodes) {
 			Wait(config.QueryInterval)
 		} else {
 			log.Println("shutting down the engine")
