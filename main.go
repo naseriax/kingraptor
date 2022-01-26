@@ -15,6 +15,20 @@ import (
 	"time"
 )
 
+func playTunnelIntro() {
+	fmt.Println("\n\t##################################################################################")
+	fmt.Println(
+		`	SSH tunnel feature is set to true. please make sure tcp forwarding is 
+	enabled and not commented out in the ssh gateway machine as below:
+
+	#cat /etc/ssh/sshd_config | grep -i "AllowTcpForwarding yes"
+	AllowTcpForwarding yes
+
+	The maximum workers in ssh tunneling mode is limited to 5 to avoid ssh connection 
+	failures and timeouts.`)
+	fmt.Println("\t##################################################################################\n")
+}
+
 func LoadConfig(configFileName string) ioreader.Config {
 	configFilePath := filepath.Join("conf", configFileName)
 	config := ioreader.ReadConfig(configFilePath)
@@ -49,13 +63,17 @@ func Wait(interval int) {
 	time.Sleep(time.Duration(interval) * time.Second)
 }
 
-func FixWorkerQuantity(totalWorkers int, totalNodes int) int {
-	if totalWorkers > totalNodes {
+func FixWorkerQuantity(config ioreader.Config, totalNodes int) int {
+	if config.SshTunnel && config.WorkerQuantity > 5 {
+		log.Println("Total Workers: 5")
+		return 5
+	}
+	if config.WorkerQuantity > totalNodes {
 		log.Printf("Total Workers: %d\n", totalNodes)
 		return totalNodes
 	}
-	log.Printf("Total Workers: %d\n", totalWorkers)
-	return totalWorkers
+	log.Printf("Total Workers: %d\n", config.WorkerQuantity)
+	return config.WorkerQuantity
 }
 
 func DoCollect(logger *iowriter.Log, NodeResourceDb *map[string][]*retriever.CriticalNeCounter, DiskMaildB *map[string][]*retriever.DiskMailedObjects, config ioreader.Config, results chan retriever.ResourceUtil, Nodes map[string]ioreader.Node) bool {
@@ -74,6 +92,8 @@ func DoCollect(logger *iowriter.Log, NodeResourceDb *map[string][]*retriever.Cri
 
 	res := ProcessResults(config, NodeResourceDb, Nodes, results)
 	if res == nil {
+		return true
+	} else if len(res) == 0 {
 		return true
 	}
 
@@ -144,7 +164,7 @@ func MakeLogBuffer(res map[string][]*retriever.CriticalResource) string {
 	logBuff := ""
 	for name, resource := range res {
 		for _, s := range resource {
-			logBuff += fmt.Sprintf("%v,%v,%v,%v\n", s.ID, name, s.Resource, s.Value)
+			logBuff += fmt.Sprintf("%v,%v,%v,%v\n", iowriter.FormatEpoch(s.ID), name, s.Resource, s.Value)
 		}
 	}
 	return logBuff[:len(logBuff)-2]
@@ -174,7 +194,7 @@ func closeAll(c chan os.Signal) {
 	retriever.IsEnded = true
 	fmt.Println("\nCTRL-C Detected!")
 	fmt.Println("Shutting down the background timers")
-	time.Sleep(5 * time.Second)
+	time.Sleep(3 * time.Second)
 	os.Exit(0)
 }
 
@@ -195,8 +215,10 @@ func main() {
 
 	configFileName := "config2.json"
 	config := LoadConfig(configFileName)
+	if config.SshTunnel {
+		playTunnelIntro()
+	}
 	logger := makeLogger(config.LogfileSize)
-
 	Nodes := ioreader.LoadNodes(filepath.Join("input", config.InputFileName))
 
 	go closeAll(prepareOsSig())
@@ -206,7 +228,7 @@ func main() {
 
 	for {
 		config := LoadConfig(configFileName)
-		config.WorkerQuantity = FixWorkerQuantity(config.WorkerQuantity, len(Nodes))
+		config.WorkerQuantity = FixWorkerQuantity(config, len(Nodes))
 
 		results := make(chan retriever.ResourceUtil, len(Nodes))
 

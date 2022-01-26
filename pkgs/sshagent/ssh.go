@@ -98,17 +98,18 @@ func Pipe(copyProgress chan int, errch chan error, writer, reader net.Conn) {
 	copyProgress <- 1
 }
 
-func Tunnel(tunReady chan<- bool, TunnelDone chan<- bool, conn *ssh.Client, local, remote string) {
+func Tunnel(tunReady chan<- string, TunnelDone chan<- bool, conn *ssh.Client, local, remote string) {
 	lst, err := net.Listen("tcp", local)
 	if err != nil {
 		log.Println(err.Error())
+		tunReady <- ""
 		return
 	}
 
-	tunReady <- true
+	tunReady <- lst.Addr().String()
 	here, err := lst.Accept()
 	if err != nil {
-		fmt.Printf("Failed to accept the ssh connection - %v", err)
+		log.Printf("failed to accept the ssh connection - %v", err)
 		lst.Close()
 		return
 	}
@@ -119,7 +120,7 @@ func Tunnel(tunReady chan<- bool, TunnelDone chan<- bool, conn *ssh.Client, loca
 		errch := make(chan error)
 		there, err := conn.Dial("tcp", remote)
 		if err != nil {
-			fmt.Printf("Failed to open there!- %v", err)
+			log.Printf("failed to dial through the tunnel - TCP forwarding allowed?- %v", err)
 			thereErr <- true
 			return
 		}

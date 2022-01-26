@@ -126,7 +126,7 @@ func ProcessErrors(err error, neName string) {
 func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUtil) {
 
 	cmds := []string{
-		`sar 4 1 | grep Average | awk '{print ($3 + $5)}'`, //-- CPU Query
+		`sar 2 1 | grep Average | awk '{print ($3 + $5)}'`, //-- CPU Query
 		`df -hP`,  //------------------------------------------- Disk Query
 		`free -m`, //------------------------------------------- RAM Query
 	}
@@ -158,11 +158,15 @@ func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUt
 			return
 		}
 		TunnelConnection = true
-		tunReady := make(chan bool)
-		go sshagent.Tunnel(tunReady, TunnelDone, ClientConn, fmt.Sprintf("localhost:%v", ne.Localport), fmt.Sprintf("%v:%v", ne.IpAddress, ne.SshPort))
-		ne.IpAddress = "localhost"
-		ne.SshPort = ne.Localport
-		<-tunReady
+		tunReady := make(chan string)
+		go sshagent.Tunnel(tunReady, TunnelDone, ClientConn, "127.0.0.1:0", fmt.Sprintf("%v:%v", ne.IpAddress, ne.SshPort))
+		tunState := <-tunReady
+		if tunState == "" {
+			results <- result
+			return
+		}
+		ne.IpAddress = strings.Split(tunState, ":")[0]
+		ne.SshPort = strings.Split(tunState, ":")[1]
 	}
 
 	//=========================================================
@@ -174,7 +178,7 @@ func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUt
 			case <-TunnelDone:
 				ClientConn.Close()
 			case <-time.After(15 * time.Second):
-				log.Println("Tunnel Timeout.closing")
+				log.Printf("Tunnel Timeout for %v", ne.Name)
 				ClientConn.Close()
 			}
 		}
@@ -202,7 +206,7 @@ func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUt
 		case <-TunnelDone:
 			ClientConn.Close()
 		case <-time.After(20 * time.Second):
-			log.Println("Tunnel Timeout.closing")
+			log.Printf("Tunnel Timeout for %v", ne.Name)
 			ClientConn.Close()
 		}
 	}

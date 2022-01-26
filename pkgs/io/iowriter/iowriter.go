@@ -31,6 +31,11 @@ func (n *Log) verifyLogFilePath() error {
 	return nil
 }
 
+func FormatEpoch(epoch int64) string {
+
+	return fmt.Sprintf("%v", time.Unix(epoch, 0).Format("2006-01-02 15:04:05"))
+}
+
 func (n *Log) rotateLog() {
 	n.FileName = fmt.Sprintf("log_%v.csv", time.Now().Unix())
 }

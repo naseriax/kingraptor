@@ -36,7 +36,6 @@ type Node struct {
 	RamThreshold  float64
 	DiskThreshold float64
 	SshPort       string
-	Localport     string
 }
 
 func ParseCSV(csvdata [][]string) map[string]Node {
@@ -61,7 +60,6 @@ func ParseCSV(csvdata [][]string) map[string]Node {
 			RamThreshold:  floatVals[1],
 			DiskThreshold: floatVals[2],
 			SshPort:       row[7],
-			Localport:     row[8],
 		}
 		nodes[tmp.Name] = tmp
 	}
