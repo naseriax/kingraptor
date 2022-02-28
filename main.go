@@ -192,10 +192,20 @@ func RemoveIndex(s []string, item string) []string {
 }
 
 //closeGracefully receives the keyboard interrupt signal from os (CTRL-C) and initiates gracefull closure by waiting for session logouts to finish.
-func closeAll(c chan os.Signal) {
-	<-c
+func closeAll(c chan os.Signal, config ioreader.Config) {
+	if config.ExecDuration > 0 {
+		select {
+		case <-c:
+			fmt.Println("\nCTRL-C Detected!")
+		case <-time.After(time.Duration(config.ExecDuration) * time.Second):
+			fmt.Println("execution duration timeout!")
+		}
+	} else {
+		<-c
+		fmt.Println("\nCTRL-C Detected!")
+	}
 	retriever.IsEnded = true
-	fmt.Println("\nCTRL-C Detected!")
+
 	fmt.Println("Shutting down the background timers")
 	time.Sleep(3 * time.Second)
 	os.Exit(0)
@@ -224,8 +234,9 @@ func main() {
 	fmt.Println("Press CTRL-C to exit...")
 	logger := makeLogger(config.LogfileSize)
 	Nodes := ioreader.LoadNodes(filepath.Join("input", config.InputFileName))
+	config.WorkerQuantity = FixWorkerQuantity(config, len(Nodes))
 
-	go closeAll(prepareOsSig())
+	go closeAll(prepareOsSig(), config)
 
 	NodeResourceDb := map[string][]*retriever.CriticalNeCounter{}
 	DiskMailDb := map[string][]*retriever.DiskMailedObjects{}
@@ -234,9 +245,6 @@ func main() {
 		if config.Verbose {
 			log.Println("*************************** Initiating a new collection cycle *******************************")
 		}
-
-		config := LoadConfig(configFileName)
-		config.WorkerQuantity = FixWorkerQuantity(config, len(Nodes))
 
 		results := make(chan retriever.ResourceUtil, len(Nodes))
 
