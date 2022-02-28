@@ -25,6 +25,7 @@ type Config struct {
 	SshGwUser        string  `json:"sshGwUser"`
 	SshGwPass        string  `json:"sshGwPass"`
 	SshGwPort        string  `json:"sshGwPort"`
+	Verbose          bool    `json:"verbose"`
 }
 
 type Node struct {

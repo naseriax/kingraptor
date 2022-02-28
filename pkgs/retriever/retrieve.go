@@ -153,7 +153,8 @@ func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUt
 
 		ClientConn, err = ssh.Dial("tcp", fmt.Sprintf("%v:%v", config.SshGwIp, config.SshGwPort), sshConfig)
 		if err != nil {
-			ProcessErrors(err, ne.Name)
+			fmt.Println(err)
+			ProcessErrors(err, "SSH Gateway:"+ne.Name)
 			results <- result
 			return
 		}
@@ -172,7 +173,7 @@ func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUt
 	//=========================================================
 	sshc, err := sshagent.Init(&ne)
 	if err != nil {
-		ProcessErrors(err, ne.Name)
+		ProcessErrors(err, "NE Session:"+ne.Name)
 		if config.SshTunnel && TunnelConnection {
 			select {
 			case <-TunnelDone:
@@ -229,7 +230,8 @@ func (m *CriticalNeCounter) StartCriticalTimer() {
 		if IsEnded {
 			return
 		}
-		fmt.Printf("%v - %v - %v - %v\n", m.RemainingTime, m.Name, m.Resource, m.Value)
+
+		go func() { fmt.Printf("%v - %v - %v - %v\n", m.RemainingTime, m.Name, m.Resource, m.Value) }()
 		m.Key.Lock()
 		m.RemainingTime -= 1
 		m.Key.Unlock()
@@ -283,6 +285,9 @@ func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalN
 	_, NeAlreadyInDB := (*NodeResourceDb)[ne.Name]
 
 	if result.Cpu >= ne.CpuThreshold {
+		if config.Verbose {
+			log.Printf("****************************** high CPU Utilization for NE %v: %v", ne.Name, result.Cpu)
+		}
 		AnyCriticalFound = true
 		critical = append(critical, &CriticalResource{
 			Resource: "CPU",
@@ -296,6 +301,9 @@ func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalN
 		}
 	}
 	if result.Ram >= ne.RamThreshold {
+		if config.Verbose {
+			log.Printf("****************************** high RAM Utilization for NE %v: %v", ne.Name, result.Ram)
+		}
 		AnyCriticalFound = true
 		critical = append(critical, &CriticalResource{
 			Resource: "RAM",
@@ -312,6 +320,9 @@ func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalN
 
 	for mp, val := range result.Disk {
 		if val >= ne.DiskThreshold {
+			if config.Verbose {
+				log.Printf("****************************** high DISK Utilization for NE %v - %v : %v", ne.Name, mp, val)
+			}
 			AnyCriticalFound = true
 			critical = append(critical, &CriticalResource{
 				Resource: fmt.Sprintf("Disk: %v", mp),

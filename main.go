@@ -26,7 +26,7 @@ func playTunnelIntro() {
 
 	The maximum workers in ssh tunneling mode is limited to 5 to avoid ssh connection 
 	failures and timeouts.`)
-	fmt.Println("\t##################################################################################\n")
+	fmt.Println("\t##################################################################################")
 }
 
 func LoadConfig(configFileName string) ioreader.Config {
@@ -86,6 +86,9 @@ func DoCollect(logger *iowriter.Log, NodeResourceDb *map[string][]*retriever.Cri
 		workerpool <- true
 		go func(ne ioreader.Node) {
 			defer func() { <-workerpool }()
+			if config.Verbose {
+				log.Printf("****************************** collecting data from %v**************************", (ne.Name))
+			}
 			retriever.DoQuery(config, ne, results)
 		}(ne)
 	}
@@ -213,11 +216,12 @@ func makeLogger(fileSize float64) iowriter.Log {
 
 func main() {
 
-	configFileName := "config2.json"
+	configFileName := "config.json"
 	config := LoadConfig(configFileName)
 	if config.SshTunnel {
 		playTunnelIntro()
 	}
+	fmt.Println("Press CTRL-C to exit...")
 	logger := makeLogger(config.LogfileSize)
 	Nodes := ioreader.LoadNodes(filepath.Join("input", config.InputFileName))
 
@@ -227,6 +231,10 @@ func main() {
 	DiskMailDb := map[string][]*retriever.DiskMailedObjects{}
 
 	for {
+		if config.Verbose {
+			log.Println("*************************** Initiating a new collection cycle *******************************")
+		}
+
 		config := LoadConfig(configFileName)
 		config.WorkerQuantity = FixWorkerQuantity(config, len(Nodes))
 
