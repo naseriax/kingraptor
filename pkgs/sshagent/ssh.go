@@ -3,10 +3,7 @@ package sshagent
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"kingraptor/pkgs/io/ioreader"
-	"log"
-	"net"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -82,69 +79,5 @@ func Init(ne *ioreader.Node) (*SshAgent, error) {
 		return &sshagent, err
 	} else {
 		return &sshagent, nil
-	}
-}
-
-func Pipe(copyProgress chan int, errch chan error, writer, reader net.Conn) {
-	defer writer.Close()
-	defer reader.Close()
-
-	_, err := io.Copy(writer, reader)
-	if err != nil {
-		log.Printf("failed to copy: %s", err)
-		errch <- err
-		return
-	}
-	copyProgress <- 1
-}
-
-func Tunnel(tunReady chan<- string, TunnelDone chan<- bool, conn *ssh.Client, local, remote string) {
-	lst, err := net.Listen("tcp", local)
-	if err != nil {
-		log.Println(err.Error())
-		tunReady <- ""
-		return
-	}
-
-	tunReady <- lst.Addr().String()
-	here, err := lst.Accept()
-	if err != nil {
-		log.Printf("failed to accept the ssh connection - %v", err)
-		lst.Close()
-		return
-	}
-	thereOk := make(chan bool)
-	thereErr := make(chan bool)
-	go func(thereOk, thereErr chan bool, here net.Conn) {
-		copyProgress := make(chan int)
-		errch := make(chan error)
-		there, err := conn.Dial("tcp", remote)
-		if err != nil {
-			log.Printf("failed to dial through the tunnel - TCP forwarding allowed?- %v", err)
-			thereErr <- true
-			return
-		}
-		thereOk <- true
-		go Pipe(copyProgress, errch, there, here)
-		go Pipe(copyProgress, errch, here, there)
-		for i := 0; i < 2; i++ {
-			select {
-			case <-errch:
-			case <-copyProgress:
-			}
-		}
-		there.Close()
-		here.Close()
-		lst.Close()
-		TunnelDone <- true
-	}(thereOk, thereErr, here)
-
-	select {
-	case <-thereErr:
-		here.Close()
-		lst.Close()
-		TunnelDone <- true
-		return
-	case <-thereOk:
 	}
 }

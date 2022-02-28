@@ -2,17 +2,13 @@
     "verbose":true,
     "enableMail": true,
     "mailRelayIp": "1.1.1.1:25",
-    "ramCpuTimePeriod" : 120,
-    "mailInterval" : 45,
     "mailFrom": "send@nfmt.com",
     "mailTo": "rev@nfmt.com",
     "logSize": 10,
+    "ramCpuTimePeriod" : 120,
+    "mailInterval" : 45,
+    "execDuration" : 40,
     "queryInterval": 30,
     "inputFileName": "nodes.csv",
-    "workerQuantity": 10000,
-    "sshTunnel" : true,
-	"sshGwIp":"10.10.10.10",
-	"sshGwUser":"root",
-	"sshGwPass" :"ssssss!",
-	"sshGwPort":"22"
+    "workerQuantity": 5
 }

@@ -10,8 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/crypto/ssh"
 )
 
 var IsEnded = false
@@ -130,59 +128,15 @@ func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUt
 		`df -hP`,  //------------------------------------------- Disk Query
 		`free -m`, //------------------------------------------- RAM Query
 	}
-
-	TunnelDone := make(chan bool)
-	var ClientConn *ssh.Client
-	var err error
-	TunnelConnection := false
 	result := ResourceUtil{
 		Name:        ne.Name,
 		IsCollected: false,
-	}
-
-	//==================================================
-	if config.SshTunnel {
-		sshConfig := &ssh.ClientConfig{
-			User: config.SshGwUser,
-			Auth: []ssh.AuthMethod{
-				ssh.Password(config.SshGwPass),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			Timeout:         time.Duration(5) * time.Second,
-		}
-
-		ClientConn, err = ssh.Dial("tcp", fmt.Sprintf("%v:%v", config.SshGwIp, config.SshGwPort), sshConfig)
-		if err != nil {
-			fmt.Println(err)
-			ProcessErrors(err, "SSH Gateway:"+ne.Name)
-			results <- result
-			return
-		}
-		TunnelConnection = true
-		tunReady := make(chan string)
-		go sshagent.Tunnel(tunReady, TunnelDone, ClientConn, "127.0.0.1:0", fmt.Sprintf("%v:%v", ne.IpAddress, ne.SshPort))
-		tunState := <-tunReady
-		if tunState == "" {
-			results <- result
-			return
-		}
-		ne.IpAddress = strings.Split(tunState, ":")[0]
-		ne.SshPort = strings.Split(tunState, ":")[1]
 	}
 
 	//=========================================================
 	sshc, err := sshagent.Init(&ne)
 	if err != nil {
 		ProcessErrors(err, "NE Session:"+ne.Name)
-		if config.SshTunnel && TunnelConnection {
-			select {
-			case <-TunnelDone:
-				ClientConn.Close()
-			case <-time.After(15 * time.Second):
-				log.Printf("Tunnel Timeout for %v", ne.Name)
-				ClientConn.Close()
-			}
-		}
 		results <- result
 		return
 	}
@@ -202,15 +156,6 @@ func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUt
 	results <- result
 	sshc.Disconnect()
 
-	if config.SshTunnel && TunnelConnection {
-		select {
-		case <-TunnelDone:
-			ClientConn.Close()
-		case <-time.After(20 * time.Second):
-			log.Printf("Tunnel Timeout for %v", ne.Name)
-			ClientConn.Close()
-		}
-	}
 }
 
 func (result *ResourceUtil) ParseResult(c string, res *string) {

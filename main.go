@@ -15,20 +15,6 @@ import (
 	"time"
 )
 
-func playTunnelIntro() {
-	fmt.Println("\n\t##################################################################################")
-	fmt.Println(
-		`	SSH tunnel feature is set to true. please make sure tcp forwarding is 
-	enabled and not commented out in the ssh gateway machine as below:
-
-	#cat /etc/ssh/sshd_config | grep -i "AllowTcpForwarding yes"
-	AllowTcpForwarding yes
-
-	The maximum workers in ssh tunneling mode is limited to 5 to avoid ssh connection 
-	failures and timeouts.`)
-	fmt.Println("\t##################################################################################")
-}
-
 func LoadConfig(configFileName string) ioreader.Config {
 	configFilePath := filepath.Join("conf", configFileName)
 	config := ioreader.ReadConfig(configFilePath)
@@ -61,19 +47,6 @@ func ProcessResults(config ioreader.Config, NodeResourceDb *map[string][]*retrie
 func Wait(interval int) {
 	log.Printf("Sleeping for %d second(s)", interval)
 	time.Sleep(time.Duration(interval) * time.Second)
-}
-
-func FixWorkerQuantity(config ioreader.Config, totalNodes int) int {
-	if config.SshTunnel && config.WorkerQuantity > 5 {
-		log.Println("Total Workers: 5")
-		return 5
-	}
-	if config.WorkerQuantity > totalNodes {
-		log.Printf("Total Workers: %d\n", totalNodes)
-		return totalNodes
-	}
-	log.Printf("Total Workers: %d\n", config.WorkerQuantity)
-	return config.WorkerQuantity
 }
 
 func DoCollect(logger *iowriter.Log, NodeResourceDb *map[string][]*retriever.CriticalNeCounter, DiskMaildB *map[string][]*retriever.DiskMailedObjects, config ioreader.Config, results chan retriever.ResourceUtil, Nodes map[string]ioreader.Node) bool {
@@ -192,11 +165,21 @@ func RemoveIndex(s []string, item string) []string {
 }
 
 //closeGracefully receives the keyboard interrupt signal from os (CTRL-C) and initiates gracefull closure by waiting for session logouts to finish.
-func closeAll(c chan os.Signal) {
-	<-c
+func closeAll(c chan os.Signal, config ioreader.Config) {
+	if config.ExecDuration > 0 {
+		select {
+		case <-c:
+			fmt.Println("\nCTRL-C Detected!")
+		case <-time.After(time.Duration(config.ExecDuration) * time.Second):
+			fmt.Println("\nTimed intrruption initiated!")
+		}
+
+	} else {
+		<-c
+		fmt.Println("\nCTRL-C Detected!")
+	}
 	retriever.IsEnded = true
-	fmt.Println("\nCTRL-C Detected!")
-	fmt.Println("Shutting down the background timers")
+	fmt.Println("Shutting down the background timers...")
 	time.Sleep(3 * time.Second)
 	os.Exit(0)
 }
@@ -218,14 +201,12 @@ func main() {
 
 	configFileName := "config.json"
 	config := LoadConfig(configFileName)
-	if config.SshTunnel {
-		playTunnelIntro()
-	}
+
 	fmt.Println("Press CTRL-C to exit...")
 	logger := makeLogger(config.LogfileSize)
 	Nodes := ioreader.LoadNodes(filepath.Join("input", config.InputFileName))
 
-	go closeAll(prepareOsSig())
+	go closeAll(prepareOsSig(), config)
 
 	NodeResourceDb := map[string][]*retriever.CriticalNeCounter{}
 	DiskMailDb := map[string][]*retriever.DiskMailedObjects{}
@@ -236,14 +217,13 @@ func main() {
 		}
 
 		config := LoadConfig(configFileName)
-		config.WorkerQuantity = FixWorkerQuantity(config, len(Nodes))
 
 		results := make(chan retriever.ResourceUtil, len(Nodes))
 
 		if DoCollect(&logger, &NodeResourceDb, &DiskMailDb, config, results, Nodes) {
 			Wait(config.QueryInterval)
 		} else {
-			log.Println("shutting down the engine")
+			log.Println("shutting down the engine...")
 			break
 		}
 	}

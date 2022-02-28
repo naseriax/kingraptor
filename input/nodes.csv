@@ -1,5 +1,5 @@
-ipAddress,name,username,password,mailNotification,cpuThreshold,ramThreshold,diskThreshold,sshPort
-1.1.1.1,n1,root,pass,1,10,10,10,5122
-2.2.2.2,n2,root,pass,1,10,10,10,5122
-3.3.3.3,n3,root,pass,1,10,10,10,5122
-3.3.4.4,n4,root,pass,1,10,10,10,5122
+ipAddress,name,username,password,cpuThreshold,ramThreshold,diskThreshold,sshPort
+10.180.12.65,n1,root,ALu12#,90,90,90,5122
+10.180.12.66,n2,root,ALu12#,90,90,90,5122
+10.180.12.67,n3,root,ALu12#,90,90,90,5122
+10.180.12.68,n4,root,ALu12#,90,90,90,5122
