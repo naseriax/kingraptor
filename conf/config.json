@@ -7,7 +7,6 @@
     "logSize": 10,
     "ramCpuTimePeriod" : 120,
     "mailInterval" : 45,
-    "execDuration" : 40,
     "queryInterval": 30,
     "inputFileName": "nodes.csv",
     "workerQuantity": 5

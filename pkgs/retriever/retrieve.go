@@ -170,13 +170,16 @@ func (result *ResourceUtil) ParseResult(c string, res *string) {
 	}
 }
 
-func (m *CriticalNeCounter) StartCriticalTimer() {
+func (m *CriticalNeCounter) StartCriticalTimer(isVerbose bool) {
 	for m.RemainingTime > 0 {
 		if IsEnded {
 			return
 		}
 
-		go func() { fmt.Printf("%v - %v - %v - %v\n", m.RemainingTime, m.Name, m.Resource, m.Value) }()
+		if isVerbose {
+			fmt.Printf("%v - %v - %v - %v\n", m.RemainingTime, m.Name, m.Resource, m.Value)
+		}
+
 		m.Key.Lock()
 		m.RemainingTime -= 1
 		m.Key.Unlock()
@@ -184,7 +187,7 @@ func (m *CriticalNeCounter) StartCriticalTimer() {
 	}
 }
 
-func (m *DiskMailedObjects) StartMailTimer(mailInterval int) {
+func (m *DiskMailedObjects) StartMailTimer(mailInterval int, isVerbose bool) {
 	m.Mailed = true
 	for mailInterval > 0 {
 		if IsEnded {
@@ -194,6 +197,10 @@ func (m *DiskMailedObjects) StartMailTimer(mailInterval int) {
 		mailInterval -= 1
 
 	}
+	if isVerbose {
+		fmt.Println("Disk mail agent is ready!")
+	}
+
 	m.Mailed = false
 }
 
@@ -303,7 +310,7 @@ func VerifyTimer(critical []*CriticalResource, NodeResourceDb *map[string][]*Cri
 				Value:         critical[ind].Value,
 				Key:           &sync.Mutex{},
 			}
-			go newNodeinDb.StartCriticalTimer()
+			go newNodeinDb.StartCriticalTimer(config.Verbose)
 			(*NodeResourceDb)[ne.Name] = append((*NodeResourceDb)[ne.Name], &newNodeinDb)
 		} else {
 			for ind := range (*NodeResourceDb)[ne.Name] {
@@ -312,13 +319,14 @@ func VerifyTimer(critical []*CriticalResource, NodeResourceDb *map[string][]*Cri
 						(*NodeResourceDb)[ne.Name][ind].Key.Lock()
 						(*NodeResourceDb)[ne.Name][ind].RemainingTime = config.RamCpuTimePeriod
 						(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
-						go (*NodeResourceDb)[ne.Name][ind].StartCriticalTimer()
+						go (*NodeResourceDb)[ne.Name][ind].StartCriticalTimer(config.Verbose)
 					} else if (*NodeResourceDb)[ne.Name][ind].RemainingTime == 0 {
 						mailBody := []mail.MailBody{
 							{
 								Name:     (*NodeResourceDb)[ne.Name][ind].Name,
 								Resource: (*NodeResourceDb)[ne.Name][ind].Resource,
 								Value:    (*NodeResourceDb)[ne.Name][ind].Value,
+								ID:       critical[ind].ID, //##############################
 							},
 						}
 						if config.EnableMail {
@@ -327,7 +335,7 @@ func VerifyTimer(critical []*CriticalResource, NodeResourceDb *map[string][]*Cri
 						(*NodeResourceDb)[ne.Name][ind].Key.Lock()
 						(*NodeResourceDb)[ne.Name][ind].RemainingTime = config.RamCpuTimePeriod
 						(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
-						go (*NodeResourceDb)[ne.Name][ind].StartCriticalTimer()
+						go (*NodeResourceDb)[ne.Name][ind].StartCriticalTimer(config.Verbose)
 					}
 					break
 				}

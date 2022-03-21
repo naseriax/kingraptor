@@ -21,7 +21,7 @@ type Config struct {
 	WorkerQuantity   int     `json:"workerQuantity"`
 	InputFileName    string  `json:"InputFileName"`
 	Verbose          bool    `json:"verbose"`
-	ExecDuration     int     `json:"execDuration"`
+	CycleQuantity    int
 }
 
 type Node struct {

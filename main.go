@@ -18,6 +18,10 @@ import (
 func LoadConfig(configFileName string) ioreader.Config {
 	configFilePath := filepath.Join("conf", configFileName)
 	config := ioreader.ReadConfig(configFilePath)
+	config.CycleQuantity = (config.RamCpuTimePeriod / config.QueryInterval) + 1
+	if config.Verbose {
+		log.Printf("Cycle quantity is %v", config.CycleQuantity)
+	}
 	return config
 }
 
@@ -79,7 +83,7 @@ func DoCollect(logger *iowriter.Log, NodeResourceDb *map[string][]*retriever.Cri
 	}
 
 	if config.EnableMail {
-		mailBuffer := MakeMailBuffer(DiskMaildB, res, config.MailInterval)
+		mailBuffer := MakeMailBuffer(config.Verbose, DiskMaildB, res, config.MailInterval)
 		if len(mailBuffer) > 0 {
 			retriever.InitMail(config, mailBuffer)
 		}
@@ -106,7 +110,7 @@ func BuildMailDbEntry(name string, disk *retriever.CriticalResource) *retriever.
 	}
 }
 
-func MakeMailBuffer(DiskMaildB *map[string][]*retriever.DiskMailedObjects, res map[string][]*retriever.CriticalResource, mailInterval int) []mail.MailBody {
+func MakeMailBuffer(isVerbose bool, DiskMaildB *map[string][]*retriever.DiskMailedObjects, res map[string][]*retriever.CriticalResource, mailInterval int) []mail.MailBody {
 	mailBuffer := []mail.MailBody{}
 	for name, resource := range res {
 		for _, disk := range resource {
@@ -120,13 +124,13 @@ func MakeMailBuffer(DiskMaildB *map[string][]*retriever.DiskMailedObjects, res m
 						foundRecord = true
 						if !(*DiskMaildB)[name][ind].Mailed {
 							mailBuffer = append(mailBuffer, BuildMailBody(name, disk))
-							go (*DiskMaildB)[name][ind].StartMailTimer(mailInterval)
+							go (*DiskMaildB)[name][ind].StartMailTimer(mailInterval, isVerbose)
 						}
 					}
 				}
 				if !foundRecord {
 					mailDbEntry := BuildMailDbEntry(name, disk)
-					go mailDbEntry.StartMailTimer(mailInterval)
+					go mailDbEntry.StartMailTimer(mailInterval, isVerbose)
 					(*DiskMaildB)[name] = append((*DiskMaildB)[name], mailDbEntry)
 					mailBuffer = append(mailBuffer, BuildMailBody(name, disk))
 				}
@@ -166,18 +170,9 @@ func RemoveIndex(s []string, item string) []string {
 
 //closeGracefully receives the keyboard interrupt signal from os (CTRL-C) and initiates gracefull closure by waiting for session logouts to finish.
 func closeAll(c chan os.Signal, config ioreader.Config) {
-	if config.ExecDuration > 0 {
-		select {
-		case <-c:
-			fmt.Println("\nCTRL-C Detected!")
-		case <-time.After(time.Duration(config.ExecDuration) * time.Second):
-			fmt.Println("\nTimed intrruption initiated!")
-		}
+	<-c
+	fmt.Println("\nCTRL-C Detected!")
 
-	} else {
-		<-c
-		fmt.Println("\nCTRL-C Detected!")
-	}
 	retriever.IsEnded = true
 	fmt.Println("Shutting down the background timers...")
 	time.Sleep(3 * time.Second)
@@ -216,14 +211,23 @@ func main() {
 			log.Println("*************************** Initiating a new collection cycle *******************************")
 		}
 
-		config := LoadConfig(configFileName)
-
 		results := make(chan retriever.ResourceUtil, len(Nodes))
 
-		if DoCollect(&logger, &NodeResourceDb, &DiskMailDb, config, results, Nodes) {
+		collection := DoCollect(&logger, &NodeResourceDb, &DiskMailDb, config, results, Nodes)
+		config.CycleQuantity -= 1
+		if config.Verbose {
+			log.Printf("remained cycles: %v", config.CycleQuantity)
+		}
+
+		if config.CycleQuantity < 1 {
+			retriever.IsEnded = true
+		}
+
+		if collection {
 			Wait(config.QueryInterval)
 		} else {
 			log.Println("shutting down the engine...")
+			time.Sleep(10 * time.Second)
 			break
 		}
 	}
