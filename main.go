@@ -76,10 +76,11 @@ func DoCollect(logger *iowriter.Log, NodeResourceDb *map[string][]*retriever.Cri
 	} else if len(res) == 0 {
 		return true
 	}
-
-	err := logger.WriteLog(MakeLogBuffer(res))
-	if err != nil {
-		log.Printf("failed to fill the csv - %v", err)
+	if config.Logging {
+		err := logger.WriteLog(MakeLogBuffer(res))
+		if err != nil {
+			log.Printf("failed to fill the csv - %v", err)
+		}
 	}
 
 	if config.EnableMail {

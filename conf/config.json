@@ -5,6 +5,7 @@
     "mailFrom": "send@nfmt.com",
     "mailTo": "rev@nfmt.com",
     "logSize": 10,
+    "logging":true,
     "ramCpuTimePeriod" : 120,
     "mailInterval" : 45,
     "queryInterval": 30,

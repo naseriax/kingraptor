@@ -22,6 +22,7 @@ type Config struct {
 	InputFileName    string  `json:"InputFileName"`
 	Verbose          bool    `json:"verbose"`
 	CycleQuantity    int
+	Logging          bool `json:"loggin"`
 }
 
 type Node struct {
