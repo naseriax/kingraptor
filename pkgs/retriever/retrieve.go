@@ -227,6 +227,9 @@ func (result *ResourceUtil) ParseResult(c string, res *string) {
 }
 
 func (m *CriticalNeCounter) StartCriticalTimer() {
+	m.Key.Lock()
+	m.RemainingTime -= 15
+	m.Key.Unlock()
 	for m.RemainingTime > 0 {
 		if IsEnded {
 			return
@@ -236,7 +239,6 @@ func (m *CriticalNeCounter) StartCriticalTimer() {
 			for !IsSleeping {
 				time.Sleep(time.Second)
 			}
-			m.RemainingTime -= 1
 		}
 
 		go func() { fmt.Printf("%v - %v - %v - %v\n", m.RemainingTime, m.Name, m.Resource, m.Value) }()
