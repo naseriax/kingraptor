@@ -29,9 +29,26 @@ func playTunnelIntro() {
 	fmt.Println("\t##################################################################################")
 }
 
+func pwd() string {
+	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		log.Fatal(err)
+	}
+	return dir
+}
+
 func LoadConfig(configFileName string) ioreader.Config {
-	configFilePath := filepath.Join("conf", configFileName)
+	configFilePath := filepath.Join(pwd(), configFileName)
 	config := ioreader.ReadConfig(configFilePath)
+	config.CycleQuantity = (config.RamCpuTimePeriod / config.QueryInterval) + 1
+	if config.Verbose {
+		log.Printf("Cycle quantity is %v", config.CycleQuantity)
+	}
+
+	if config.RamCpuTimePeriod <= config.QueryInterval {
+		log.Println("RamCpuTimePeriod must be bigger than QueryInterval. quiting...")
+		os.Exit(0)
+	}
 	return config
 }
 
@@ -59,14 +76,22 @@ func ProcessResults(config ioreader.Config, NodeResourceDb *map[string][]*retrie
 }
 
 func Wait(interval int) {
+	retriever.IsSleeping = true
 	log.Printf("Sleeping for %d second(s)", interval)
 	time.Sleep(time.Duration(interval) * time.Second)
+	retriever.IsSleeping = false
 }
 
 func FixWorkerQuantity(config ioreader.Config, totalNodes int) int {
 	if config.SshTunnel && config.WorkerQuantity > 5 {
-		log.Println("Total Workers: 5")
-		return 5
+		if totalNodes > 5 {
+			log.Println("Total Workers: 5")
+			return 5
+		} else {
+			log.Printf("Total Workers: %d\n", totalNodes)
+			return totalNodes
+		}
+
 	}
 	if config.WorkerQuantity > totalNodes {
 		log.Printf("Total Workers: %d\n", totalNodes)
@@ -100,9 +125,11 @@ func DoCollect(logger *iowriter.Log, NodeResourceDb *map[string][]*retriever.Cri
 		return true
 	}
 
-	err := logger.WriteLog(MakeLogBuffer(res))
-	if err != nil {
-		log.Printf("failed to fill the csv - %v", err)
+	if config.Logging {
+		err := logger.WriteLog(MakeLogBuffer(res))
+		if err != nil {
+			log.Printf("failed to fill the csv - %v", err)
+		}
 	}
 
 	if config.EnableMail {
@@ -193,20 +220,11 @@ func RemoveIndex(s []string, item string) []string {
 
 //closeGracefully receives the keyboard interrupt signal from os (CTRL-C) and initiates gracefull closure by waiting for session logouts to finish.
 func closeAll(c chan os.Signal, config ioreader.Config) {
-	if config.ExecDuration > 0 {
-		select {
-		case <-c:
-			fmt.Println("\nCTRL-C Detected!")
-		case <-time.After(time.Duration(config.ExecDuration) * time.Second):
-			fmt.Println("execution duration timeout!")
-		}
-	} else {
-		<-c
-		fmt.Println("\nCTRL-C Detected!")
-	}
-	retriever.IsEnded = true
+	<-c
+	fmt.Println("\nCTRL-C Detected!")
 
-	fmt.Println("Shutting down the background timers")
+	retriever.IsEnded = true
+	fmt.Println("Shutting down the background timers...")
 	time.Sleep(3 * time.Second)
 	os.Exit(0)
 }
@@ -233,7 +251,8 @@ func main() {
 	}
 	fmt.Println("Press CTRL-C to exit...")
 	logger := makeLogger(config.LogfileSize)
-	Nodes := ioreader.LoadNodes(filepath.Join("input", config.InputFileName))
+
+	Nodes := ioreader.LoadNodes(filepath.Join(pwd(), config.InputFileName))
 	config.WorkerQuantity = FixWorkerQuantity(config, len(Nodes))
 
 	go closeAll(prepareOsSig(), config)
@@ -248,10 +267,21 @@ func main() {
 
 		results := make(chan retriever.ResourceUtil, len(Nodes))
 
-		if DoCollect(&logger, &NodeResourceDb, &DiskMailDb, config, results, Nodes) {
+		collection := DoCollect(&logger, &NodeResourceDb, &DiskMailDb, config, results, Nodes)
+		config.CycleQuantity -= 1
+		if config.Verbose {
+			log.Printf("remained cycles: %v", config.CycleQuantity)
+		}
+
+		if config.CycleQuantity < 1 {
+			retriever.IsEnded = true
+		}
+
+		if collection {
 			Wait(config.QueryInterval)
 		} else {
-			log.Println("shutting down the engine")
+			log.Println("shutting down the engine...")
+			time.Sleep(10 * time.Second)
 			break
 		}
 	}

@@ -15,6 +15,7 @@ import (
 )
 
 var IsEnded = false
+var IsSleeping = false
 
 type DiskMailedObjects struct {
 	Name     string
@@ -231,6 +232,13 @@ func (m *CriticalNeCounter) StartCriticalTimer() {
 			return
 		}
 
+		if !IsSleeping {
+			for !IsSleeping {
+				time.Sleep(time.Second)
+			}
+			m.RemainingTime -= 1
+		}
+
 		go func() { fmt.Printf("%v - %v - %v - %v\n", m.RemainingTime, m.Name, m.Resource, m.Value) }()
 		m.Key.Lock()
 		m.RemainingTime -= 1
@@ -276,6 +284,7 @@ func InitMail(config ioreader.Config, mailBodies []mail.MailBody) {
 	} else {
 		log.Println("mail notification dispatched!")
 	}
+
 }
 
 func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalNeCounter, ne *ioreader.Node, result ResourceUtil) []*CriticalResource { //Per NE

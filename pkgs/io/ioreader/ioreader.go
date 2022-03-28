@@ -10,7 +10,9 @@ import (
 )
 
 type Config struct {
-	MailRelayIp      string  `json:"mailRelayIp"`
+	MailRelayIp      string `json:"mailRelayIp"`
+	CycleQuantity    int
+	Logging          bool    `json:"loggin"`
 	EnableMail       bool    `json:"enableMail"`
 	RamCpuTimePeriod int     `json:"ramCpuTimePeriod"`
 	MailFrom         string  `json:"mailFrom"`
@@ -26,7 +28,6 @@ type Config struct {
 	SshGwPass        string  `json:"sshGwPass"`
 	SshGwPort        string  `json:"sshGwPort"`
 	Verbose          bool    `json:"verbose"`
-	ExecDuration     int     `json:"execDuration"`
 }
 
 type Node struct {
