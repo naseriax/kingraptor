@@ -12,7 +12,8 @@ import (
 type Config struct {
 	MailRelayIp      string `json:"mailRelayIp"`
 	CycleQuantity    int
-	Logging          bool    `json:"loggin"`
+	HighCount        int
+	Logging          bool    `json:"logging"`
 	EnableMail       bool    `json:"enableMail"`
 	RamCpuTimePeriod int     `json:"ramCpuTimePeriod"`
 	MailFrom         string  `json:"mailFrom"`

@@ -10,8 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/crypto/ssh"
 )
 
 var IsEnded = false
@@ -26,11 +24,11 @@ type DiskMailedObjects struct {
 }
 
 type CriticalNeCounter struct {
-	Name          string
-	RemainingTime int
-	Resource      string
-	Value         float64
-	Key           *sync.Mutex
+	Name      string
+	Resource  string
+	Value     float64
+	Key       *sync.Mutex
+	HighCount int
 }
 
 type CriticalResource struct {
@@ -132,61 +130,39 @@ func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUt
 		`free -m`, //------------------------------------------- RAM Query
 	}
 
-	TunnelDone := make(chan bool)
-	var ClientConn *ssh.Client
 	var err error
-	TunnelConnection := false
 	result := ResourceUtil{
 		Name:        ne.Name,
 		IsCollected: false,
 	}
 
-	//==================================================
 	if config.SshTunnel {
-		sshConfig := &ssh.ClientConfig{
-			User: config.SshGwUser,
-			Auth: []ssh.AuthMethod{
-				ssh.Password(config.SshGwPass),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			Timeout:         time.Duration(5) * time.Second,
+		ne.IpAddress = "127.0.0.1"
+		jumpserver := map[string]string{
+			"ADDR":  fmt.Sprintf("%v:%v", config.SshGwIp, config.SshGwPort),
+			"USER":  config.SshGwUser,
+			"PASSW": config.SshGwPass,
 		}
-
-		ClientConn, err = ssh.Dial("tcp", fmt.Sprintf("%v:%v", config.SshGwIp, config.SshGwPort), sshConfig)
-		if err != nil {
-			fmt.Println(err)
-			ProcessErrors(err, "SSH Gateway:"+ne.Name)
+		portNo := make(chan string)
+		errC := make(chan error)
+		go sshagent.MakeTunnel(jumpserver, ne.IpAddress, ne.SshPort, portNo, errC)
+		select {
+		case p := <-portNo:
+			ne.SshPort = p
+		case err := <-errC:
+			ProcessErrors(err, ne.Name)
 			results <- result
 			return
 		}
-		TunnelConnection = true
-		tunReady := make(chan string)
-		go sshagent.Tunnel(tunReady, TunnelDone, ClientConn, "127.0.0.1:0", fmt.Sprintf("%v:%v", ne.IpAddress, ne.SshPort))
-		tunState := <-tunReady
-		if tunState == "" {
-			results <- result
-			return
-		}
-		ne.IpAddress = strings.Split(tunState, ":")[0]
-		ne.SshPort = strings.Split(tunState, ":")[1]
 	}
 
-	//=========================================================
 	sshc, err := sshagent.Init(&ne)
 	if err != nil {
 		ProcessErrors(err, "NE Session:"+ne.Name)
-		if config.SshTunnel && TunnelConnection {
-			select {
-			case <-TunnelDone:
-				ClientConn.Close()
-			case <-time.After(15 * time.Second):
-				log.Printf("Tunnel Timeout for %v", ne.Name)
-				ClientConn.Close()
-			}
-		}
 		results <- result
 		return
 	}
+	defer sshc.Disconnect()
 
 	for _, c := range cmds {
 		res, err := sshc.Exec(c)
@@ -201,21 +177,10 @@ func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUt
 	result.IsCollected = true
 	result.ID = GetUnixTime()
 	results <- result
-	sshc.Disconnect()
-
-	if config.SshTunnel && TunnelConnection {
-		select {
-		case <-TunnelDone:
-			ClientConn.Close()
-		case <-time.After(20 * time.Second):
-			log.Printf("Tunnel Timeout for %v", ne.Name)
-			ClientConn.Close()
-		}
-	}
 }
 
 func (result *ResourceUtil) ParseResult(c string, res *string) {
-	if strings.Contains(c, "awk") {
+	if strings.Contains(c, "sar") {
 		result.Cpu = ParseCPU(*res)
 	} else if strings.Contains(c, "free -m") {
 		result.Ram = ParseRAM(*res)
@@ -223,29 +188,6 @@ func (result *ResourceUtil) ParseResult(c string, res *string) {
 		result.Disk = ParseDisk(*res)
 	} else {
 		log.Println(res)
-	}
-}
-
-func (m *CriticalNeCounter) StartCriticalTimer() {
-	m.Key.Lock()
-	m.RemainingTime -= 15
-	m.Key.Unlock()
-	for m.RemainingTime > 0 {
-		if IsEnded {
-			return
-		}
-
-		if !IsSleeping {
-			for !IsSleeping {
-				time.Sleep(time.Second)
-			}
-		}
-
-		go func() { fmt.Printf("%v - %v - %v - %v\n", m.RemainingTime, m.Name, m.Resource, m.Value) }()
-		m.Key.Lock()
-		m.RemainingTime -= 1
-		m.Key.Unlock()
-		time.Sleep(time.Second)
 	}
 }
 
@@ -257,7 +199,6 @@ func (m *DiskMailedObjects) StartMailTimer(mailInterval int) {
 		}
 		time.Sleep(time.Second)
 		mailInterval -= 1
-
 	}
 	m.Mailed = false
 }
@@ -265,11 +206,9 @@ func (m *DiskMailedObjects) StartMailTimer(mailInterval int) {
 func ResetTimer(NodeResourceDb *map[string][]*CriticalNeCounter, ne *ioreader.Node, timerType string) {
 	for ind := range (*NodeResourceDb)[ne.Name] {
 		if (*NodeResourceDb)[ne.Name][ind].Resource == timerType {
-			if (*NodeResourceDb)[ne.Name][ind].RemainingTime > 0 {
-				(*NodeResourceDb)[ne.Name][ind].Key.Lock()
-				(*NodeResourceDb)[ne.Name][ind].RemainingTime = -1
-				(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
-			}
+			(*NodeResourceDb)[ne.Name][ind].Key.Lock()
+			(*NodeResourceDb)[ne.Name][ind].HighCount = 0
+			(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
 			break
 		}
 	}
@@ -286,7 +225,6 @@ func InitMail(config ioreader.Config, mailBodies []mail.MailBody) {
 	} else {
 		log.Println("mail notification dispatched!")
 	}
-
 }
 
 func AssesResult(config ioreader.Config, NodeResourceDb *map[string][]*CriticalNeCounter, ne *ioreader.Node, result ResourceUtil) []*CriticalResource { //Per NE
@@ -362,24 +300,28 @@ func VerifyTimer(critical []*CriticalResource, NodeResourceDb *map[string][]*Cri
 			continue
 		}
 		if len((*NodeResourceDb)[ne.Name]) == 0 {
-			newNodeinDb := CriticalNeCounter{
-				Name:          ne.Name,
-				RemainingTime: config.RamCpuTimePeriod,
-				Resource:      critical[ind].Resource,
-				Value:         critical[ind].Value,
-				Key:           &sync.Mutex{},
+			if config.Verbose {
+				log.Printf("Creating new object with HighCount=1/%v for %v - %v", config.HighCount, ne.Name, critical[ind].Resource)
 			}
-			go newNodeinDb.StartCriticalTimer()
+			newNodeinDb := CriticalNeCounter{
+				Name:      ne.Name,
+				Resource:  critical[ind].Resource,
+				Value:     critical[ind].Value,
+				Key:       &sync.Mutex{},
+				HighCount: 1,
+			}
 			(*NodeResourceDb)[ne.Name] = append((*NodeResourceDb)[ne.Name], &newNodeinDb)
 		} else {
 			for ind := range (*NodeResourceDb)[ne.Name] {
 				if (*NodeResourceDb)[ne.Name][ind].Resource == critical[ind].Resource {
-					if (*NodeResourceDb)[ne.Name][ind].RemainingTime < 0 {
-						(*NodeResourceDb)[ne.Name][ind].Key.Lock()
-						(*NodeResourceDb)[ne.Name][ind].RemainingTime = config.RamCpuTimePeriod
-						(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
-						go (*NodeResourceDb)[ne.Name][ind].StartCriticalTimer()
-					} else if (*NodeResourceDb)[ne.Name][ind].RemainingTime == 0 {
+					if config.Verbose {
+						log.Printf("Increasing HighCount for %v - %v to %v / %v", ne.Name, critical[ind].Resource, (*NodeResourceDb)[ne.Name][ind].HighCount+1, config.HighCount)
+					}
+					(*NodeResourceDb)[ne.Name][ind].Key.Lock()
+					(*NodeResourceDb)[ne.Name][ind].HighCount += 1
+					(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
+					if (*NodeResourceDb)[ne.Name][ind].HighCount >= config.HighCount {
+
 						mailBody := []mail.MailBody{
 							{
 								Name:     (*NodeResourceDb)[ne.Name][ind].Name,
@@ -388,12 +330,17 @@ func VerifyTimer(critical []*CriticalResource, NodeResourceDb *map[string][]*Cri
 							},
 						}
 						if config.EnableMail {
+							if config.Verbose {
+								log.Printf("Sending email for %v - %v HighCount: %v", ne.Name, critical[ind].Resource, (*NodeResourceDb)[ne.Name][ind].HighCount)
+							}
 							InitMail(config, mailBody)
 						}
+						if config.Verbose {
+							log.Printf("Setting the Highcount=0/%v for %v - %v", config.HighCount, ne.Name, critical[ind].Resource)
+						}
 						(*NodeResourceDb)[ne.Name][ind].Key.Lock()
-						(*NodeResourceDb)[ne.Name][ind].RemainingTime = config.RamCpuTimePeriod
+						(*NodeResourceDb)[ne.Name][ind].HighCount = 0
 						(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
-						go (*NodeResourceDb)[ne.Name][ind].StartCriticalTimer()
 					}
 					break
 				}

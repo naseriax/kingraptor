@@ -18,11 +18,13 @@ import (
 func playTunnelIntro() {
 	fmt.Println("\n\t##################################################################################")
 	fmt.Println(
-		`	SSH tunnel feature is set to true. please make sure tcp forwarding is 
+		`	SSH tunnel feature is enabeld. please make sure the tcp forwarding is 
 	enabled and not commented out in the ssh gateway machine as below:
 
 	#cat /etc/ssh/sshd_config | grep -i "AllowTcpForwarding yes"
 	AllowTcpForwarding yes
+
+	Note: Check the sshd_config file's syntax using "sshd -t" command before restarting the sshd service.
 
 	The maximum workers in ssh tunneling mode is limited to 5 to avoid ssh connection 
 	failures and timeouts.`)
@@ -40,7 +42,8 @@ func pwd() string {
 func LoadConfig(configFileName string) ioreader.Config {
 	configFilePath := filepath.Join(pwd(), configFileName)
 	config := ioreader.ReadConfig(configFilePath)
-	config.CycleQuantity = (config.RamCpuTimePeriod / config.QueryInterval) + 1
+	config.CycleQuantity = (config.RamCpuTimePeriod / config.QueryInterval)
+	config.HighCount = config.CycleQuantity
 	if config.Verbose {
 		log.Printf("Cycle quantity is %v", config.CycleQuantity)
 	}
@@ -69,24 +72,23 @@ func ProcessResults(config ioreader.Config, NodeResourceDb *map[string][]*retrie
 				}
 			}
 		case <-time.After(25 * time.Second):
-			log.Println("Timeout")
+			log.Println("Timeout on receiving NE collection result")
 		}
 	}
 	return CR_Resources
 }
 
 func Wait(interval int) {
-	retriever.IsSleeping = true
 	log.Printf("Sleeping for %d second(s)", interval)
 	time.Sleep(time.Duration(interval) * time.Second)
-	retriever.IsSleeping = false
 }
 
 func FixWorkerQuantity(config ioreader.Config, totalNodes int) int {
-	if config.SshTunnel && config.WorkerQuantity > 5 {
-		if totalNodes > 5 {
-			log.Println("Total Workers: 5")
-			return 5
+	maxConnsWithTun := 5
+	if config.SshTunnel && config.WorkerQuantity > maxConnsWithTun {
+		if totalNodes > maxConnsWithTun {
+			log.Printf("Total Workers: %v", maxConnsWithTun)
+			return maxConnsWithTun
 		} else {
 			log.Printf("Total Workers: %d\n", totalNodes)
 			return totalNodes
@@ -135,6 +137,9 @@ func DoCollect(logger *iowriter.Log, NodeResourceDb *map[string][]*retriever.Cri
 	if config.EnableMail {
 		mailBuffer := MakeMailBuffer(DiskMaildB, res, config.MailInterval)
 		if len(mailBuffer) > 0 {
+			if config.Verbose {
+				log.Println("Sending email for Disk resources...")
+			}
 			retriever.InitMail(config, mailBuffer)
 		}
 	}
@@ -220,6 +225,7 @@ func RemoveIndex(s []string, item string) []string {
 
 //closeGracefully receives the keyboard interrupt signal from os (CTRL-C) and initiates gracefull closure by waiting for session logouts to finish.
 func closeAll(c chan os.Signal, config ioreader.Config) {
+	fmt.Println("Press CTRL-C to exit...")
 	<-c
 	fmt.Println("\nCTRL-C Detected!")
 
@@ -249,7 +255,7 @@ func main() {
 	if config.SshTunnel {
 		playTunnelIntro()
 	}
-	fmt.Println("Press CTRL-C to exit...")
+
 	logger := makeLogger(config.LogfileSize)
 
 	Nodes := ioreader.LoadNodes(filepath.Join(pwd(), config.InputFileName))
