@@ -15,22 +15,6 @@ import (
 	"time"
 )
 
-func playTunnelIntro() {
-	fmt.Println("\n\t##################################################################################")
-	fmt.Println(
-		`	SSH tunnel feature is enabeld. please make sure the tcp forwarding is 
-	enabled and not commented out in the ssh gateway machine as below:
-
-	#cat /etc/ssh/sshd_config | grep -i "AllowTcpForwarding yes"
-	AllowTcpForwarding yes
-
-	Note: Check the sshd_config file's syntax using "sshd -t" command before restarting the sshd service.
-
-	The maximum workers in ssh tunneling mode is limited to 5 to avoid ssh connection 
-	failures and timeouts.`)
-	fmt.Println("\t##################################################################################")
-}
-
 func pwd() string {
 	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
@@ -84,17 +68,6 @@ func Wait(interval int) {
 }
 
 func FixWorkerQuantity(config ioreader.Config, totalNodes int) int {
-	maxConnsWithTun := 5
-	if config.SshTunnel && config.WorkerQuantity > maxConnsWithTun {
-		if totalNodes > maxConnsWithTun {
-			log.Printf("Total Workers: %v", maxConnsWithTun)
-			return maxConnsWithTun
-		} else {
-			log.Printf("Total Workers: %d\n", totalNodes)
-			return totalNodes
-		}
-
-	}
 	if config.WorkerQuantity > totalNodes {
 		log.Printf("Total Workers: %d\n", totalNodes)
 		return totalNodes
@@ -252,9 +225,6 @@ func main() {
 
 	configFileName := "config.json"
 	config := LoadConfig(configFileName)
-	if config.SshTunnel {
-		playTunnelIntro()
-	}
 
 	logger := makeLogger(config.LogfileSize)
 

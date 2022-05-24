@@ -23,11 +23,6 @@ type Config struct {
 	QueryInterval    int     `json:"queryInterval"`
 	WorkerQuantity   int     `json:"workerQuantity"`
 	InputFileName    string  `json:"InputFileName"`
-	SshTunnel        bool    `json:"sshTunnel"`
-	SshGwIp          string  `json:"sshGwIp"`
-	SshGwUser        string  `json:"sshGwUser"`
-	SshGwPass        string  `json:"sshGwPass"`
-	SshGwPort        string  `json:"sshGwPort"`
 	Verbose          bool    `json:"verbose"`
 }
 

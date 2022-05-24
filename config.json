@@ -2,7 +2,7 @@
     "verbose":true,
     "logging" : false,
     "enableMail": true,
-    "mailRelayIp": "10.10.10.10:25",
+    "mailRelayIp": "172.18.77.19:25",
     "ramCpuTimePeriod" : 120,
     "mailInterval" : 90,
     "mailFrom": "from@test.com",
@@ -11,9 +11,5 @@
     "queryInterval": 15,
     "inputFileName": "nodes.csv",
     "workerQuantity": 10000,
-    "sshTunnel" : true,
-	"sshGwIp":"11.11.11.11",
-	"sshGwUser":"root",
-	"sshGwPass" :"*********",
 	"sshGwPort":"22"
 }

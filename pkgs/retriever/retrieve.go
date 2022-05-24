@@ -13,7 +13,6 @@ import (
 )
 
 var IsEnded = false
-var IsSleeping = false
 
 type DiskMailedObjects struct {
 	Name     string
@@ -134,26 +133,6 @@ func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUt
 	result := ResourceUtil{
 		Name:        ne.Name,
 		IsCollected: false,
-	}
-
-	if config.SshTunnel {
-		ne.IpAddress = "127.0.0.1"
-		jumpserver := map[string]string{
-			"ADDR":  fmt.Sprintf("%v:%v", config.SshGwIp, config.SshGwPort),
-			"USER":  config.SshGwUser,
-			"PASSW": config.SshGwPass,
-		}
-		portNo := make(chan string)
-		errC := make(chan error)
-		go sshagent.MakeTunnel(jumpserver, ne.IpAddress, ne.SshPort, portNo, errC)
-		select {
-		case p := <-portNo:
-			ne.SshPort = p
-		case err := <-errC:
-			ProcessErrors(err, ne.Name)
-			results <- result
-			return
-		}
 	}
 
 	sshc, err := sshagent.Init(&ne)
