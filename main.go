@@ -26,16 +26,11 @@ func pwd() string {
 func LoadConfig(configFileName string) ioreader.Config {
 	configFilePath := filepath.Join(pwd(), configFileName)
 	config := ioreader.ReadConfig(configFilePath)
-	config.CycleQuantity = (config.RamCpuTimePeriod / config.QueryInterval)
 	config.HighCount = config.CycleQuantity
 	if config.Verbose {
 		log.Printf("Cycle quantity is %v", config.CycleQuantity)
 	}
 
-	if config.RamCpuTimePeriod <= config.QueryInterval {
-		log.Println("RamCpuTimePeriod must be bigger than QueryInterval. quiting...")
-		os.Exit(0)
-	}
 	return config
 }
 

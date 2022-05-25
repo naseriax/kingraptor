@@ -14,7 +14,6 @@
 *.out
 nodes_test.csv
 config_test.json
-kingraptor
 
 
 # Dependency directories (remove the comment below to include it)

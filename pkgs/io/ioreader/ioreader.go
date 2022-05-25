@@ -10,20 +10,19 @@ import (
 )
 
 type Config struct {
-	MailRelayIp      string `json:"mailRelayIp"`
-	CycleQuantity    int
-	HighCount        int
-	Logging          bool    `json:"logging"`
-	EnableMail       bool    `json:"enableMail"`
-	RamCpuTimePeriod int     `json:"ramCpuTimePeriod"`
-	MailFrom         string  `json:"mailFrom"`
-	MailTo           string  `json:"mailTo"`
-	MailInterval     int     `json:"mailInterval"`
-	LogfileSize      float64 `json:"logSize"`
-	QueryInterval    int     `json:"queryInterval"`
-	WorkerQuantity   int     `json:"workerQuantity"`
-	InputFileName    string  `json:"InputFileName"`
-	Verbose          bool    `json:"verbose"`
+	MailRelayIp    string `json:"mailRelayIp"`
+	CycleQuantity  int    `json:"cycleQty"`
+	HighCount      int
+	Logging        bool    `json:"logging"`
+	EnableMail     bool    `json:"enableMail"`
+	MailFrom       string  `json:"mailFrom"`
+	MailTo         string  `json:"mailTo"`
+	MailInterval   int     `json:"mailInterval"`
+	LogfileSize    float64 `json:"logSize"`
+	QueryInterval  int     `json:"queryInterval"`
+	WorkerQuantity int     `json:"workerQuantity"`
+	InputFileName  string  `json:"InputFileName"`
+	Verbose        bool    `json:"verbose"`
 }
 
 type Node struct {

@@ -59,11 +59,11 @@ func ParseRAM(res string) float64 {
 			memInfo := strings.Fields(l)
 			total, err := strconv.ParseFloat(memInfo[1], 64)
 			if err != nil {
-				log.Printf("%v", err)
+				log.Printf("ParseRAM 1 -%v", err)
 			}
 			avail, err := strconv.ParseFloat(memInfo[6], 64)
 			if err != nil {
-				log.Printf("%v", err)
+				log.Printf("ParseRAM 2 -%v", err)
 			}
 			output = 100 - ((avail * 100) / total)
 			break
@@ -71,7 +71,7 @@ func ParseRAM(res string) float64 {
 	}
 	val, err := strconv.ParseFloat(fmt.Sprintf("%.1f", output), 64)
 	if err != nil {
-		log.Printf("%v", err)
+		log.Printf("ParseRAM 3 - %v", err)
 	}
 	return val
 }
@@ -79,11 +79,11 @@ func ParseRAM(res string) float64 {
 func ParseCPU(res string) float64 {
 	output, err := strconv.ParseFloat(strings.Replace(res, "\n", "", 1), 64)
 	if err != nil {
-		log.Printf("%v", err)
+		log.Printf("ParseCPU 1 - %v", err)
 	}
 	val, err := strconv.ParseFloat(fmt.Sprintf("%.1f", output), 64)
 	if err != nil {
-		log.Printf("%v", err)
+		log.Printf("ParseCPU 2 - %v", err)
 	}
 	return val
 }
@@ -96,12 +96,11 @@ func ParseDisk(res string) map[string]float64 {
 			dskInfo := strings.Fields(l)
 			val, err := strconv.ParseFloat(strings.Replace(dskInfo[4], "%", "", 1), 64)
 			if err != nil {
-				log.Printf("%v", err)
+				log.Printf("ParseDisk 1 -%v", err)
 			}
 			output[dskInfo[5]] = val
 		}
 	}
-
 	return output
 }
 
@@ -124,9 +123,12 @@ func ProcessErrors(err error, neName string) {
 func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUtil) {
 
 	cmds := []string{
-		`sar 2 1 | grep Average | awk '{print ($3 + $5)}'`, //-- CPU Query
-		`df -hP`,  //------------------------------------------- Disk Query
-		`free -m`, //------------------------------------------- RAM Query
+		//CPU Query
+		`cat <(grep 'cpu ' /proc/stat) <(sleep 1 && grep 'cpu ' /proc/stat) | awk -v RS="" '{print ($13-$2+$15-$4)*100/($13-$2+$15-$4+$16-$5)}'`,
+		//Disk Query
+		`df -hP`,
+		//RAM Query
+		`free -m`,
 	}
 
 	var err error
@@ -159,7 +161,7 @@ func DoQuery(config ioreader.Config, ne ioreader.Node, results chan<- ResourceUt
 }
 
 func (result *ResourceUtil) ParseResult(c string, res *string) {
-	if strings.Contains(c, "sar") {
+	if strings.Contains(c, "cpu") {
 		result.Cpu = ParseCPU(*res)
 	} else if strings.Contains(c, "free -m") {
 		result.Ram = ParseRAM(*res)
@@ -278,9 +280,15 @@ func VerifyTimer(critical []*CriticalResource, NodeResourceDb *map[string][]*Cri
 		if strings.Contains(critical[ind].Resource, "Disk") {
 			continue
 		}
-		if len((*NodeResourceDb)[ne.Name]) == 0 {
+		BreakFlag := false
+		for in := range (*NodeResourceDb)[ne.Name] {
+			if (*NodeResourceDb)[ne.Name][in].Resource == critical[ind].Resource {
+				BreakFlag = true
+			}
+		}
+		if !BreakFlag {
 			if config.Verbose {
-				log.Printf("Creating new object with HighCount=1/%v for %v - %v", config.HighCount, ne.Name, critical[ind].Resource)
+				log.Printf("Creating a new object with High Count = 1/%v for %v - %v", config.HighCount, ne.Name, critical[ind].Resource)
 			}
 			newNodeinDb := CriticalNeCounter{
 				Name:      ne.Name,
@@ -291,36 +299,41 @@ func VerifyTimer(critical []*CriticalResource, NodeResourceDb *map[string][]*Cri
 			}
 			(*NodeResourceDb)[ne.Name] = append((*NodeResourceDb)[ne.Name], &newNodeinDb)
 		} else {
-			for ind := range (*NodeResourceDb)[ne.Name] {
-				if (*NodeResourceDb)[ne.Name][ind].Resource == critical[ind].Resource {
+
+			BreakFlag := false
+			for i := range (*NodeResourceDb)[ne.Name] {
+				if (*NodeResourceDb)[ne.Name][i].Resource == critical[ind].Resource {
 					if config.Verbose {
-						log.Printf("Increasing HighCount for %v - %v to %v / %v", ne.Name, critical[ind].Resource, (*NodeResourceDb)[ne.Name][ind].HighCount+1, config.HighCount)
+						log.Printf("Increasing High Count for %v - %v to %v / %v", ne.Name, critical[ind].Resource, (*NodeResourceDb)[ne.Name][i].HighCount+1, config.HighCount)
 					}
-					(*NodeResourceDb)[ne.Name][ind].Key.Lock()
-					(*NodeResourceDb)[ne.Name][ind].HighCount += 1
-					(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
-					if (*NodeResourceDb)[ne.Name][ind].HighCount >= config.HighCount {
+					(*NodeResourceDb)[ne.Name][i].Key.Lock()
+					(*NodeResourceDb)[ne.Name][i].HighCount += 1
+					(*NodeResourceDb)[ne.Name][i].Key.Unlock()
+					if (*NodeResourceDb)[ne.Name][i].HighCount >= config.HighCount {
 
 						mailBody := []mail.MailBody{
 							{
-								Name:     (*NodeResourceDb)[ne.Name][ind].Name,
-								Resource: (*NodeResourceDb)[ne.Name][ind].Resource,
-								Value:    (*NodeResourceDb)[ne.Name][ind].Value,
+								Name:     (*NodeResourceDb)[ne.Name][i].Name,
+								Resource: (*NodeResourceDb)[ne.Name][i].Resource,
+								Value:    (*NodeResourceDb)[ne.Name][i].Value,
 							},
 						}
 						if config.EnableMail {
 							if config.Verbose {
-								log.Printf("Sending email for %v - %v HighCount: %v", ne.Name, critical[ind].Resource, (*NodeResourceDb)[ne.Name][ind].HighCount)
+								log.Printf("Sending email for %v - %v HighCount: %v", ne.Name, critical[ind].Resource, (*NodeResourceDb)[ne.Name][i].HighCount)
 							}
 							InitMail(config, mailBody)
 						}
 						if config.Verbose {
-							log.Printf("Setting the Highcount=0/%v for %v - %v", config.HighCount, ne.Name, critical[ind].Resource)
+							log.Printf("Setting the High lcount=0/%v for %v - %v", config.HighCount, ne.Name, critical[ind].Resource)
 						}
-						(*NodeResourceDb)[ne.Name][ind].Key.Lock()
-						(*NodeResourceDb)[ne.Name][ind].HighCount = 0
-						(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
+						(*NodeResourceDb)[ne.Name][i].Key.Lock()
+						(*NodeResourceDb)[ne.Name][i].HighCount = 0
+						(*NodeResourceDb)[ne.Name][i].Key.Unlock()
 					}
+					BreakFlag = true
+				}
+				if BreakFlag {
 					break
 				}
 			}

@@ -1,15 +1,15 @@
 {
     "verbose":true,
     "logging" : false,
+    "logSize": 10,
     "enableMail": true,
-    "mailRelayIp": "172.18.77.19:25",
-    "ramCpuTimePeriod" : 120,
+    "mailRelayIp": "10.10.10.10:25",
     "mailInterval" : 90,
     "mailFrom": "from@test.com",
     "mailTo": "to@test.com",
-    "logSize": 10,
+    "cycleQty" : 6,
     "queryInterval": 15,
     "inputFileName": "nodes.csv",
-    "workerQuantity": 10000,
+    "workerQuantity": 10,
 	"sshGwPort":"22"
 }
