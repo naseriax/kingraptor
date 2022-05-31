@@ -101,7 +101,7 @@ func (m *MailObject) SendMail() error {
 }
 
 func CreateSubject() string {
-	return "Kingraptor - High disk Utilization"
+	return "Kingraptor - High Utilization"
 }
 
 func CreateBody(mailBodies []MailBody) string {
