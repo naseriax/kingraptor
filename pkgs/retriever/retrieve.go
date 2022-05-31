@@ -187,6 +187,7 @@ func (m *DiskMailedObjects) StartMailTimer(mailInterval int) {
 func ResetTimer(NodeResourceDb *map[string][]*CriticalNeCounter, ne *ioreader.Node, timerType string) {
 	for ind := range (*NodeResourceDb)[ne.Name] {
 		if (*NodeResourceDb)[ne.Name][ind].Resource == timerType {
+			log.Printf("Setting the High Count value for %v - %v to 0", ne.Name, timerType)
 			(*NodeResourceDb)[ne.Name][ind].Key.Lock()
 			(*NodeResourceDb)[ne.Name][ind].HighCount = 0
 			(*NodeResourceDb)[ne.Name][ind].Key.Unlock()
@@ -299,8 +300,6 @@ func VerifyTimer(critical []*CriticalResource, NodeResourceDb *map[string][]*Cri
 			}
 			(*NodeResourceDb)[ne.Name] = append((*NodeResourceDb)[ne.Name], &newNodeinDb)
 		} else {
-
-			BreakFlag := false
 			for i := range (*NodeResourceDb)[ne.Name] {
 				if (*NodeResourceDb)[ne.Name][i].Resource == critical[ind].Resource {
 					if config.Verbose {
@@ -325,15 +324,12 @@ func VerifyTimer(critical []*CriticalResource, NodeResourceDb *map[string][]*Cri
 							InitMail(config, mailBody)
 						}
 						if config.Verbose {
-							log.Printf("Setting the High lcount=0/%v for %v - %v", config.HighCount, ne.Name, critical[ind].Resource)
+							log.Printf("Setting the High count=0/%v for %v - %v", config.HighCount, ne.Name, critical[ind].Resource)
 						}
 						(*NodeResourceDb)[ne.Name][i].Key.Lock()
 						(*NodeResourceDb)[ne.Name][i].HighCount = 0
 						(*NodeResourceDb)[ne.Name][i].Key.Unlock()
 					}
-					BreakFlag = true
-				}
-				if BreakFlag {
 					break
 				}
 			}

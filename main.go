@@ -26,7 +26,12 @@ func pwd() string {
 func LoadConfig(configFileName string) ioreader.Config {
 	configFilePath := filepath.Join(pwd(), configFileName)
 	config := ioreader.ReadConfig(configFilePath)
-	config.HighCount = config.CycleQuantity
+
+	if config.HighCount == 0 {
+		config.HighCount = config.CycleQuantity
+	}
+
+	fmt.Println(config.HighCount)
 	if config.Verbose {
 		log.Printf("Cycle quantity is %v", config.CycleQuantity)
 	}
@@ -89,9 +94,7 @@ func DoCollect(logger *iowriter.Log, NodeResourceDb *map[string][]*retriever.Cri
 	}
 
 	res := ProcessResults(config, NodeResourceDb, Nodes, results)
-	if res == nil {
-		return true
-	} else if len(res) == 0 {
+	if len(res) == 0 {
 		return true
 	}
 
@@ -238,7 +241,8 @@ func main() {
 
 		results := make(chan retriever.ResourceUtil, len(Nodes))
 
-		collection := DoCollect(&logger, &NodeResourceDb, &DiskMailDb, config, results, Nodes)
+		DoCollect(&logger, &NodeResourceDb, &DiskMailDb, config, results, Nodes)
+
 		config.CycleQuantity -= 1
 		if config.Verbose {
 			log.Printf("remained cycles: %v", config.CycleQuantity)
@@ -248,7 +252,7 @@ func main() {
 			retriever.IsEnded = true
 		}
 
-		if collection {
+		if !retriever.IsEnded {
 			Wait(config.QueryInterval)
 		} else {
 			log.Println("shutting down the engine...")

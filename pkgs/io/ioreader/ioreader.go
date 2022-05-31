@@ -10,9 +10,9 @@ import (
 )
 
 type Config struct {
-	MailRelayIp    string `json:"mailRelayIp"`
-	CycleQuantity  int    `json:"cycleQty"`
-	HighCount      int
+	MailRelayIp    string  `json:"mailRelayIp"`
+	CycleQuantity  int     `json:"cycleQty"`
+	HighCount      int     `json:"highCount"`
 	Logging        bool    `json:"logging"`
 	EnableMail     bool    `json:"enableMail"`
 	MailFrom       string  `json:"mailFrom"`
