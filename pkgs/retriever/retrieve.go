@@ -315,6 +315,7 @@ func VerifyTimer(critical []*CriticalResource, NodeResourceDb *map[string][]*Cri
 								Name:     (*NodeResourceDb)[ne.Name][i].Name,
 								Resource: (*NodeResourceDb)[ne.Name][i].Resource,
 								Value:    (*NodeResourceDb)[ne.Name][i].Value,
+								ID:       GetUnixTime(),
 							},
 						}
 						if config.EnableMail {
