@@ -29,7 +29,7 @@ $ env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build .
     "mailTo": "to@test.com",           //The email messages with be sent to this email address.
     "logSize": 10,                     //Log file rotation will be executed if the log file size exceeds this value (MB)(3).
     "cycleQty": 6,                     //Specifies how many time the utilization values must be collected from NEs.
-    "highCount":3,                     //Determines the high utilization judjment value. if after {highCount} consequtiven cycles, the RAM/CPU utilization remains high, Notification email will be dispatched. cycleQty value will be used in case highCount value is not entered in the config file.
+    "highCount":3,                     //Determines the high utilization judgement value. if after {highCount} consequtiven cycles, the RAM/CPU utilization remains high, Notification email will be dispatched. cycleQty value will be used in case highCount value is not entered in the config file.
     "queryInterval": 300,              //Data sampling will be done on all the Nodes mentioned in nodes.csv file with this interval in seconds(1). 
     "inputFileName": "nodes.csv",      //The csv file name which contains the Nodes information. Check the file to know correct formatting.
     "workerQuantity": 10,              //Determines how many Nodes will be queried in parallel.
