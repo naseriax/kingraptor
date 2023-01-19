@@ -13,6 +13,11 @@ Monitor Nokia 1830PSS equipment's RAM/CPU/Disk utilization in Go!
 
 ## Usage
 
+# Clone the code to your machine (git must be installed):
+```
+git clone https://github.com/naseriax/kingraptor.git --branch cron_noTimer_noTun
+```
+
 # Compile for linux amd64 arch:
 ```
 $ env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build .
